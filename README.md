@@ -109,8 +109,9 @@ in `sandbox-probe`):
   `stub-common.sh` plumbing, `mock-agent-api.mjs`, and the agent run scripts
 - ✅ `tests/agent-driven/*.sh` — the baseline/sandbox pair scripts
 - ✅ `reports/*.json`, `trajectories/*.json` — the stored fixtures
-- ⏳ `site/` — the client-side reporting page, and the matrix's aggregate/publish job
-- ⏳ `docs/reporting-site-plan.md` and the comparison-methodology ADRs
+- ✅ `site/` — the client-side reporting page, and the matrix's aggregate/publish job
+- ✅ `docs/reporting-site-plan.md` and `docs/adr/0001-*` (the comparison-methodology
+  ADR; ADR 0002 decides the probe's own registry shape and stays with the probe)
 
 **Staying** in `sandbox-probe`: the Go binary (`cmd/`, `pkg/`, `main.go`), its
 tests, and `list-targets` — the probe's own registry of what it checks, which
@@ -134,13 +135,39 @@ invoke resolves under `scripts/` here.
 **History does not migrate.** Files arrive as a fresh commit; the decision
 record lives in the ADRs and wayfinder maps rather than in `git log`.
 
+A final `aggregate` job (`needs: [build, scan]`, `if: always()`, so a partially
+failed matrix still publishes what succeeded) collects every scan row's report
+artifact, appends one commit to the orphan `gh-pages-data` branch at
+`data/<run-timestamp>/<os>-<harness>.json`, rebuilds the concatenated
+`all-reports.json` from the whole branch history (`scripts/build-site-data.mjs`),
+and deploys `site/` + that payload to GitHub Pages
+(`scripts/publish-site.sh`). See [ADR 0001](docs/adr/0001-client-side-site-over-data-branch.md).
+
+## One-time setup this repository still needs
+
+Two things a human has to do once, before the first matrix run, or that run
+publishes nothing (the aggregate job's `git push` and Pages deploy both fail at
+the last step against a repository that has neither):
+
+1. **Create the orphan `gh-pages-data` branch.** `publish-site.sh` creates it
+   itself on first run (`git worktree add --orphan`) if it doesn't already
+   exist on the remote — but the workflow's `contents: write` permission has to
+   actually be able to push a new branch, so confirm branch protection rules
+   don't block it.
+2. **Enable GitHub Pages with the "GitHub Actions" source**, under Settings →
+   Pages, in `chrisns/sandbox-probe-reports`. Without this, `deploy-pages`
+   has nothing to deploy to.
+
+Nothing here can be verified by running tests; the first real matrix run is
+the verification.
+
 ## No current data here yet
 
 This repository publishes no comparison results at the moment. The dormant
-`controlplaneio/sandbox-probe-reports` still carries a single `gemini/` sample
-directory from March 2026 — **that is a stale sample, not current data**, and
-it is removed as part of the migration. Nothing under this repo is a
-published result until the scan matrix lands and the data branch starts
+`controlplaneio/sandbox-probe-reports` still carried a single `gemini/` sample
+directory from March 2026 before the fresh-start commit — **that was a stale
+sample, not current data**, and it did not migrate. Nothing under this repo is
+a published result until the scan matrix runs here and the data branch starts
 publishing.
 
 ## Methodology
