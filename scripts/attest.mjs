@@ -40,6 +40,16 @@ const SOCKET_GRANTS = {
   unix_socket_subtree_bind: ["dir-subtree", "connect+bind"],
 };
 
+// Credentials: nono declares each credential's secret by source URI, and only
+// `env://NAME` puts it in the child's environment — the half the probe observes.
+// The probe emits one `env_secret_detection` finding *per* secret-shaped variable
+// (the variable name and why it matched, never the value), so this axis arrives as
+// several object-valued findings rather than one list-valued one.
+const CRED_FINDING = "env_secret_detection";
+const ENV_SOURCE = /^env:\/\/(.+)$/;
+const NOT_FROM_ENV =
+  "credential is not sourced from the environment — nothing here observes where it comes from";
+
 // AF_UNIX mediation is opt-in (`linux.af_unix_mediation`), so absent means off. With
 // it off the socket grants are not enforced at all, whatever they say: socket results
 // are then a *modifier* on the reading, never a policy verdict. Nothing socket-derived
@@ -57,6 +67,12 @@ export const UNDECLARABLE = [
   "hostname_detection",
   "user_context_detection",
 ];
+
+// How an undeclared observation names itself, per finding type; paths otherwise.
+const GAP_FIELD = {
+  [EGRESS_FINDING]: (host) => ({ host }),
+  [CRED_FINDING]: (secret) => ({ envKey: secret.env_key }),
+};
 
 const NO_FINDING = "no probe finding observes this category";
 const NOT_MAPPED = "not yet mapped in this layer";
@@ -98,15 +114,18 @@ const COVERS = {
   socket: coversSocket,
   domain: coversDomain,
   port: (unit, port) => unit.port === port,
+  env: (unit, secret) => unit.env === secret.env_key,
   any: () => true,
 };
 const covers = (unit, value) => COVERS[unit.kind](unit, value);
 
-const finding = (report, ft) => report?.findings?.find((f) => f.findingType === ft);
-const observed = (report, ft) => {
-  const v = finding(report, ft)?.value;
-  return Array.isArray(v) ? v : [];
-};
+const findingsOf = (report, ft) => report?.findings?.filter((f) => f.findingType === ft) ?? [];
+const finding = (report, ft) => findingsOf(report, ft)[0];
+// One finding may carry a list of observations (paths, hosts, ports) or be one
+// observation in its own right, repeated per finding (env secrets). Both flatten
+// to the same thing: every value observed for this finding type.
+const observed = (report, ft) =>
+  findingsOf(report, ft).flatMap((f) => (Array.isArray(f.value) ? f.value : [f.value]));
 
 // One declared unit per thing the capability set claims. Units with a findingType
 // are attestable; the rest carry the reason nothing here observes them and are
@@ -191,8 +210,17 @@ function declaredUnits(cs, home) {
     }
   }
 
+  // The secret's own source is the declaration the probe can check: an `env://`
+  // credential says the run is handed that variable. Any other source says nothing
+  // about the environment, so it stays unattested rather than reading as a failure.
   for (const c of cs.credentials ?? []) {
-    push(`credentials:${c.name}`, { category: "credentials", reason: NO_FINDING });
+    const env = ENV_SOURCE.exec(c.source ?? "")?.[1];
+    push(`credentials:${c.name}`, {
+      category: "credentials",
+      ...(env
+        ? { kind: "env", env, declares: CRED_FINDING, findingType: CRED_FINDING }
+        : { reason: NOT_FROM_ENV }),
+    });
   }
 
   const p = cs.process ?? {};
@@ -248,7 +276,7 @@ export function attest({ profile, capabilitySet, sandbox, baseline, home }) {
   // its own list rather than pooled with the declared-side verdicts. An inverted
   // unit declares un-reachability, so it never suppresses a gap.
   const gaps = [];
-  const gapTypes = [...Object.values(FS_FINDING), EGRESS_FINDING];
+  const gapTypes = [...Object.values(FS_FINDING), EGRESS_FINDING, CRED_FINDING];
   // Sockets only join the gap pass when mediation is on. Off, a reachable socket is
   // not a policy failure — it is listed below carrying the modifier instead.
   if (mediation === "pathname") gapTypes.push(SOCKET_FINDING);
@@ -258,11 +286,7 @@ export function attest({ profile, capabilitySet, sandbox, baseline, home }) {
         (u) => u.declares === findingType && u.polarity !== "absent" && covers(u, value),
       );
       if (declared) continue;
-      gaps.push(
-        findingType === EGRESS_FINDING
-          ? { class: "gap", findingType, host: value }
-          : { class: "gap", findingType, path: value },
-      );
+      gaps.push({ class: "gap", findingType, ...(GAP_FIELD[findingType]?.(value) ?? { path: value }) });
     }
   }
   // ponytail: no gap pass over open ports. A port the profile never declared is

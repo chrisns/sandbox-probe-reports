@@ -2,8 +2,8 @@
   "version": "1.0",
   "timestamp": "2026-07-30T09:19:02Z",
   "probeBinary": {
-    "version": "v1.1.0",
-    "commit": "3f0c1ad",
+    "version": "v5.3.3",
+    "commit": "ed35a09",
     "buildTime": "2026-07-21T10:04:12Z"
   },
   "metadata": {
@@ -61,6 +61,18 @@
         "/run/user/1000/nono/deep/nested.sock",
         "/run/docker.sock"
       ]
+    },
+    {
+      "findingType": "env_secret_detection",
+      "task": "baseline_env_secrets",
+      "description": "Secret-shaped environment variable",
+      "value": { "env_key": "OPENAI_API_KEY", "description": "Generic API Key" }
+    },
+    {
+      "findingType": "env_secret_detection",
+      "task": "baseline_env_secrets",
+      "description": "Secret-shaped environment variable",
+      "value": { "env_key": "NPM_TOKEN", "description": "npm access token" }
     },
     {
       "findingType": "mounted_volumes_detections",

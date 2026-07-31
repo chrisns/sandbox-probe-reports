@@ -25,6 +25,18 @@
       "upstream": "https://api.openai.com",
       "source": "env://OPENAI_API_KEY",
       "inject": { "mode": "header", "header": "Authorization", "format": "Bearer {}" }
+    },
+    {
+      "name": "github",
+      "upstream": "https://api.github.com",
+      "source": "env://GITHUB_TOKEN",
+      "inject": { "mode": "header", "header": "Authorization", "format": "Bearer {}" }
+    },
+    {
+      "name": "anthropic",
+      "upstream": "https://api.anthropic.com",
+      "source": "env://ANTHROPIC_API_KEY",
+      "inject": { "mode": "header", "header": "x-api-key", "format": "{}" }
     }
   ],
   "process": {

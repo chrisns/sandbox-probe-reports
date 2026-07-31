@@ -45,7 +45,12 @@ const EXPECTED = {
   // declared, nothing here observes the category
   "network.mode": "unattested",
   "network.endpoints:api.github.com:443": "unattested",
-  "credentials:openai": "unattested",
+  // the secret the profile declares is in the run's own environment
+  "credentials:openai": "match",
+  // declared, absent under the profile, present in the baseline
+  "credentials:github": "overclaim",
+  // declared, and nothing handed it to the baseline either
+  "credentials:anthropic": "unprovable",
   "process.process_info_mode": "unattested",
   "process.signal_mode": "unattested",
   "process.ipc_mode": "unattested",
@@ -74,6 +79,8 @@ test("reachable-but-undeclared is a gap, kept distinct from the declared-side ve
     // egress to a destination nothing declares; api.openai.com is declared as a
     // domain and api.github.com by an endpoint, so neither is a gap
     { class: "gap", findingType: "external_host_connectivity", host: "telemetry.example.net" },
+    // a secret in the run's environment that no credential declares
+    { class: "gap", findingType: "env_secret_detection", envKey: "NPM_TOKEN" },
   ]);
   assert.ok(!result.verdicts.some((v) => v.class === "gap"));
 });
@@ -92,11 +99,30 @@ test("mount topology, hostname and user context are excluded, never gaps", () =>
 
 test("coverage states the attested fraction of the declared surface", () => {
   assert.deepEqual(result.coverage, {
-    declared: 17,
-    attested: 10,
-    unattested: 7,
-    attestedFraction: 10 / 17,
+    declared: 19,
+    attested: 13,
+    unattested: 6,
+    attestedFraction: 13 / 19,
   });
+});
+
+test("a profile's credentials are attested, not parked in the unattested list", () => {
+  const creds = result.verdicts.filter((v) => v.category === "credentials");
+  assert.equal(creds.length, 3);
+  assert.ok(!creds.some((v) => v.class === "unattested"));
+  // and the attested fraction rises by exactly the credentials that joined it
+  const withoutCreds = attest({ ...INPUT, capabilitySet: { ...load("capability-set"), credentials: [] } });
+  assert.ok(result.coverage.attestedFraction > withoutCreds.coverage.attestedFraction);
+  assert.equal(result.coverage.attested, withoutCreds.coverage.attested + 3);
+  assert.equal(result.coverage.unattested, withoutCreds.coverage.unattested);
+});
+
+test("a credential sourced from somewhere other than the environment stays unattested", () => {
+  const cs = load("capability-set");
+  cs.credentials = [{ name: "vault", source: "file:///run/secrets/token" }];
+  const v = attest({ ...INPUT, capabilitySet: cs }).verdicts.find((x) => x.id === "credentials:vault");
+  assert.equal(v.class, "unattested");
+  assert.match(v.reason, /not sourced from the environment/);
 });
 
 test("coverage arithmetic counts network grants, so it moves when they do", () => {
@@ -104,7 +130,7 @@ test("coverage arithmetic counts network grants, so it moves when they do", () =
   cs.network.allow_domains = cs.network.allow_domains.slice(0, 1);
   cs.network.ports = { localhost: [8080] };
   const fewer = attest({ ...INPUT, capabilitySet: cs }).coverage;
-  assert.deepEqual(fewer, { declared: 14, attested: 7, unattested: 7, attestedFraction: 7 / 14 });
+  assert.deepEqual(fewer, { declared: 16, attested: 10, unattested: 6, attestedFraction: 10 / 16 });
   assert.notEqual(fewer.attestedFraction, result.coverage.attestedFraction);
 });
 
