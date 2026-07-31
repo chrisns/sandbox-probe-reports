@@ -112,6 +112,9 @@ ticket 05 onward):
 - ✅ `tests/agent-driven/*.sh` — the baseline/sandbox pair scripts
 - ✅ `reports/*.json`, `trajectories/*.json` — the stored fixtures
 - ✅ `site/` — the client-side reporting page, and the matrix's aggregate/publish job
+- ✅ `docs/mount-cell-moves.md` — the record of which harnesses' Host mounts cell
+  moves under the corrected mount enumerator, and `scripts/mount-cell-moves.mjs`
+  which produces it from two matrix runs
 - ✅ `docs/reporting-site-plan.md`, `docs/adr/0001-*` (the comparison-methodology
   ADR) and [`CONTEXT.md`](CONTEXT.md) — this repository is now the only place
   the comparison-side ubiquitous language is defined. ADR 0002 decides the
