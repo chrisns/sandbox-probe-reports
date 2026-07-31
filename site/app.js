@@ -46,6 +46,20 @@ function harnessVersion(r) {
 }
 const fingerprint = (r) => [harnessVersion(r), r.report.probeBinary.commit, kernelOf(r), r.os].join("|");
 
+// Mount entries come in two shapes: a plain path string (pre spec-7 probe), or
+// an object carrying source/target/fsType and the mount root (post spec-7
+// probe, ADR-0002's neighbour ticket #7 in sandbox-probe). Both must render
+// without error, so drill-down display/comparison goes through these two
+// normalizers rather than assuming either shape.
+function mountLabel(v) {
+  if (v == null || typeof v !== "object") return String(v);
+  return v.target || v.source || v.path || JSON.stringify(v);
+}
+function mountKey(v) {
+  if (v == null || typeof v !== "object") return String(v);
+  return [v.source, v.target, v.mountRoot, v.fsType].filter((x) => x != null).join("|") || JSON.stringify(v);
+}
+
 // A finding only signals a real capability if it carries something: a task can
 // run and find nothing, emitting the finding type with an empty value (e.g. DNS
 // resolution blocked -> external_host_dns_resolution: []). Empty != leaked.
@@ -107,7 +121,7 @@ function build(rows) {
         fp, ts: r.runTimestamp, harnessVersion: harnessVersion(r),
         probe: r.report.probeBinary.commit, kernel: kernelOf(r), os: r.os,
         sandbox: sandboxOf(r), root: isRoot(r), row: r,
-        states: cellStates(r, base), hasBaseline: !!base,
+        states: cellStates(r, base), hasBaseline: !!base, baselineRow: base,
       };
       if (!points.has(fp)) points.set(fp, pt);
       else { const p = points.get(fp); p.states = pt.states; p.row = r; } // latest wins, keep first ts
@@ -187,20 +201,46 @@ function renderMatrix() {
     td.addEventListener("click", () => drill(td.dataset.id, td.dataset.cat)));
 }
 
+function findingItems(row, fts) {
+  const items = [];
+  if (!row) return items;
+  for (const ft of fts) {
+    const f = find(row, ft);
+    if (f) items.push(...(Array.isArray(f.value) ? f.value : [f.value]));
+  }
+  return items;
+}
+
+// host_mounts drill-down: entry counts grew a lot once the enumerator started
+// reporting every mount root (spec #7), so the raw list leads with what the
+// sandbox exposes beyond the baseline — mounts also reachable in the baseline
+// are collapsed rather than deleted, since they're still real, just not new.
+function renderMountDrill(items, baselineRow, fts) {
+  if (!items.length) return `<p class="muted">No accessible items.</p>`;
+  const baseKeys = new Set(findingItems(baselineRow, fts).map(mountKey));
+  const unique = [], common = [];
+  for (const it of items) (baseKeys.has(mountKey(it)) ? common : unique).push(it);
+  const li = (v) => `<li>${mountLabel(v)}</li>`;
+  let h = "";
+  if (unique.length)
+    h += `<p class="mount-group-label">Unique to this sandbox (${unique.length})</p><ul>${unique.map(li).join("")}</ul>`;
+  if (common.length)
+    h += `<details class="mount-common"><summary>Also in baseline (${common.length})</summary><ul>${common.map(li).join("")}</ul></details>`;
+  return h;
+}
+
 function drill(id, catKey) {
   const p = MODEL[id].at(-1);
   const cat = CATEGORIES.find((c) => c.key === catKey);
   const fts = Object.entries(FT2CAT).filter(([, v]) => v === catKey).map(([k]) => k);
-  const items = [];
-  for (const ft of fts) {
-    const f = find(p.row, ft);
-    if (f) items.push(...(Array.isArray(f.value) ? f.value : [f.value]).map((v) => typeof v === "object" ? JSON.stringify(v) : v));
-  }
+  const items = findingItems(p.row, fts);
   document.getElementById("drill-title").textContent = `${id} · ${cat.label} · ${p.states[catKey]}`;
+  const body = catKey === "host_mounts"
+    ? renderMountDrill(items, p.baselineRow, fts)
+    : (items.length ? "<ul>" + items.map((i) => `<li>${typeof i === "object" ? JSON.stringify(i) : i}</li>`).join("") + "</ul>"
+        : `<p class="muted">No accessible items (${p.states[catKey]}).</p>`);
   document.getElementById("drill-body").innerHTML =
-    `<div class="fp">fingerprint: ${p.harnessVersion || "—"} · probe ${p.probe} · ${p.kernel}</div>` +
-    (items.length ? "<ul>" + items.map((i) => `<li>${i}</li>`).join("") + "</ul>"
-      : `<p class="muted">No accessible items (${p.states[catKey]}).</p>`);
+    `<div class="fp">fingerprint: ${p.harnessVersion || "—"} · probe ${p.probe} · ${p.kernel}</div>` + body;
   document.getElementById("drill").classList.remove("hidden");
 }
 

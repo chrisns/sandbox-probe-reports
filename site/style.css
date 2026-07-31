@@ -129,10 +129,10 @@ code { background: var(--cp-pill-bg); color: var(--cp-text-body); padding: 0 3px
 
 /* drill panel — CP card: hairline border, surface-card fill, no shadow-heavy look */
 .drill {
-  position: fixed; right: 0; top: 0; width: 340px; height: 100%;
+  position: fixed; right: 0; top: 0; width: 340px; max-width: 100vw; height: 100%;
   background: var(--cp-surface-card);
   border-left: 1px solid var(--cp-border);
-  padding: 16px; overflow: auto;
+  padding: 16px; overflow-y: auto; overflow-x: hidden;
 }
 .drill.hidden { display: none; }
 .drill-head { display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; color: var(--cp-text-heading); }
@@ -140,6 +140,16 @@ code { background: var(--cp-pill-bg); color: var(--cp-text-body); padding: 0 3px
 .drill .fp { font-size: 11px; color: var(--cp-text-muted); margin-bottom: 8px; font-family: ui-monospace, monospace; }
 .drill ul { padding-left: 18px; margin: 0; }
 .drill li { font-family: ui-monospace, monospace; font-size: 12px; word-break: break-all; }
+/* mount drill-down: sandbox-unique entries lead, baseline-shared ones collapse
+   behind a <details> so a long mount list (spec #7's per-mount-root entries)
+   stays scannable instead of burying the diff in noise. */
+.mount-group-label { font-size: 11px; color: var(--cp-text-muted); text-transform: uppercase; letter-spacing: 0.03em; margin: 8px 0 4px; }
+.mount-common { margin-top: 8px; color: var(--cp-text-muted); }
+.mount-common summary { cursor: pointer; font-size: 12px; }
+.mount-common ul { margin-top: 6px; opacity: 0.75; }
+@media (max-width: 480px) {
+  .drill { width: 100vw; }
+}
 label { font-size: 12px; color: var(--cp-text-muted); }
 select {
   font: inherit; padding: 2px 4px;
