@@ -38,7 +38,10 @@ each variant is a distinct harness identity for reporting.
 The methodology is comparison, not absolute measurement. The **baseline** is the
 probe run unconfined on the host; the **sandbox** run is inside the harness. The
 sandbox boundary is everything present in the baseline but absent under the
-sandbox.
+sandbox. This is **baseline-versus-sandbox**, and it is a different comparison
+from **declared-versus-actual** (see Attestation) — the two never merge: one asks
+"did the sandbox close a door the host had open?", the other asks "did the
+sandbox deliver exactly what its published profile claimed?".
 
 ### Run
 One Report for one harness identity at one point in time.
@@ -158,6 +161,51 @@ process already had, not a door it opened, so it is context and the scale stays 
 The headline scalar the eye tracks over time: the count of leaked (🟥) capability
 categories for an identity at a point (0–8). Rising = degrading sandbox, falling =
 improving. The y-axis of the exposure-over-time chart.
+
+### Declared profile
+An externally-authored, versioned, published claim about a security boundary —
+starting with a nono registry profile (e.g. `nolabs-ai/codex`), which declares
+which paths, destinations, ports and sockets an agent may reach. Its author is
+someone other than this project, which is what makes checking it worth doing.
+
+### Capability set
+The **resolved** form of a declared profile — nono's capability manifest — with
+groups, aliases, inheritance and bypasses already expanded. This, never the
+authored profile, is the declared side of a diff: composition cannot be evaluated
+from the profile file alone without reimplementing nono's resolver.
+
+### Attestation
+The output of diffing a capability set against what the probe observed under that
+profile, with the seeded unconfined baseline as a third input. It gives every
+declared grant a **drift** class, lists the reachable-but-undeclared findings, and
+states its own **coverage**. It names the profile identifier and version it
+checked, because a verdict that cannot be traced to an exact published claim is
+worthless. This is **declared-versus-actual**, kept apart from
+baseline-versus-sandbox (see above) and out of the 0–8 exposure scale: a drift
+class is not a capability category.
+
+### Drift
+A mismatch between what a profile declares and what is actually reachable.
+Every declared grant and every observed finding resolves to exactly one class:
+
+| Class | Meaning |
+|---|---|
+| **Match** | Declared, and observed reachable. |
+| **Overclaim** | Declared, not observed, *and* reachable in the baseline — the profile advertises a capability the sandbox does not deliver. |
+| **Gap** | Observed reachable with nothing in the capability set declaring it. The security-relevant direction; presented separately, never pooled with the declared-side verdicts. |
+| **Unprovable** | Declared, not observed, and not reachable in the baseline either. Nothing was there to reach, so this is not an overclaim — the ⬜ n/a cell state of attestation, and why a seeded baseline is an input. |
+| **Unattested** | Declared, but nothing here observes the category. Reported explicitly with the reason, never folded into match. |
+
+### Coverage (attestation)
+The fraction of the declared surface that was attestable at all: attested
+declared units over total declared units. "No drift" over a 30%-attestable
+profile means something very different from the same words over a 95%-attestable
+one, so the verdicts are never published without it.
+
+### Undeclarable finding
+A finding nono has nothing to declare for by design — mount topology, hostname
+and UID/GID context, because it mediates by policy and never swaps a namespace or
+a rootfs. Excluded from the diff entirely; can never be a gap.
 
 ### Flip / Flip-log
 A **flip** is a capability changing state between two consecutive points of one

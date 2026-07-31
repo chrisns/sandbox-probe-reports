@@ -1,0 +1,55 @@
+{
+  "version": "1.0",
+  "timestamp": "2026-07-30T09:19:02Z",
+  "probeBinary": {
+    "version": "v1.1.0",
+    "commit": "3f0c1ad",
+    "buildTime": "2026-07-21T10:04:12Z"
+  },
+  "metadata": {
+    "tags": [
+      "os=ubuntu-latest",
+      "harness=nono-profile",
+      "runner=github",
+      "profile=nolabs-ai/codex"
+    ]
+  },
+  "findings": [
+    {
+      "findingType": "sandbox_detection",
+      "task": "baseline_sandbox_detector",
+      "description": "Container/wrapper runtime",
+      "value": "landlock"
+    },
+    {
+      "findingType": "sensitive_readable_paths",
+      "task": "baseline_filesystem_enumerator",
+      "description": "Readable sensitive paths",
+      "value": ["/etc/passwd", "/home/runner/.ssh/id_rsa"]
+    },
+    {
+      "findingType": "writeable_paths",
+      "task": "baseline_path_task",
+      "description": "Writable system/home paths",
+      "value": ["/tmp/workspace", "/var/tmp"]
+    },
+    {
+      "findingType": "mounted_volumes_detections",
+      "task": "baseline_mount_task",
+      "description": "Mounted volumes",
+      "value": ["/", "/home", "/proc"]
+    },
+    {
+      "findingType": "hostname_detection",
+      "task": "baseline_hostname_task",
+      "description": "System hostname",
+      "value": "runner-a3f21"
+    },
+    {
+      "findingType": "user_context_detection",
+      "task": "baseline_user_context_task",
+      "description": "User identity",
+      "value": { "uid": 1001, "gid": 1001, "euid": 1001, "egid": 1001 }
+    }
+  ]
+}
