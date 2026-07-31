@@ -182,7 +182,8 @@ until you accept it:
 NONO_PACK_ACK=1 PROFILE=nolabs-ai/codex PROBE=./bin/sandbox-probe ./scripts/attest-profile.sh
 ```
 
-`tests/nono-pack-wiring.test.mjs` runs on
+The same lifecycle backs the `codex-nono` matrix row (`CODEX_NONO_PROFILE` in
+`scripts/run-probe-via-codex-stub.sh`). `tests/nono-pack-wiring.test.mjs` runs on
 every push and fails if the warning, snapshot or trap ever stops preceding the
 install; the real-registry half — that `nono remove` reverses a real pack — is
 exercised by the gated job, which deliberately crashes a run mid-way and asserts
@@ -343,6 +344,16 @@ checked-in fixture build (`node scripts/build-attestation.mjs`) or an observed
 run's, and its own `source` field says which — the two can never be confused.
 Producing the observed one is [Running the attestation](#running-the-attestation)
 above.
+
+**The `codex-nono` row.** Separately from the attestation, the real Codex CLI
+also runs under that same declared profile as an *ordinary* matrix row, beside
+the native-sandbox `codex-sandbox` row, on the baseline-normalized methodology
+entirely unchanged — two genuine sandboxing choices, read against each other. Its
+confinement is `nono run --profile <id> --` and nothing else, so the row measures
+the vendor's published claim rather than any flag of ours; everything the run
+needs to read or write lives inside a path the profile already grants. It carries
+its own harness identity and tags the resolved profile version, so it forms its
+own time series and a flip is attributable to a specific published claim.
 
 ### Adding a sandbox row
 

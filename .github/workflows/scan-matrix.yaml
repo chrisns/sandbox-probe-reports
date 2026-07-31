@@ -85,6 +85,22 @@ jobs:
           - { os: linux, runner: ubuntu-latest, arch: linux-amd64,  ext: "", family: codex, harness: codex-sandbox, sandbox: "on", expect: '["bubblewrap","no-new-privs","seccomp-filter","landlock"]' }
           - { os: macos, runner: macos-latest,  arch: darwin-arm64, ext: "", family: codex, harness: codex,         sandbox: "off" }
           - { os: macos, runner: macos-latest,  arch: darwin-arm64, ext: "", family: codex, harness: codex-sandbox, sandbox: "on", expect: '["seatbelt"]' }
+          # codex-nono (#29) — the same real Codex CLI, confined by nono's *published* profile
+          # instead of its own sandbox: an ordinary matrix row on the unchanged baseline-normalized
+          # methodology, read directly against codex-sandbox above. Every restriction is the
+          # vendor's — the launcher passes `nono run --profile <id> --` and nothing else, and the
+          # probe, Codex's state and the report all live inside a path the profile already grants
+          # rather than one we opened. Its own harness identity, tagging the resolved profile
+          # version, so it forms its own time series. THIS ROW INSTALLS A REGISTRY PACK, which
+          # splices Codex plugin wiring into ~/.codex; removal is verified on exit whether the run
+          # succeeds or fails (scripts/nono-pack.sh).
+          # Best-effort until a real run has been observed: it is unconfirmed whether the profile's
+          # network policy lets Codex reach the stubbed model API on loopback. If it does not, that
+          # is a finding to record about the profile — NOT something to fix by adding a network flag
+          # of our own, which would make the row measure our configuration. Promote to blocking once
+          # a scheduled run shows it green.
+          - { os: linux, runner: ubuntu-latest, arch: linux-amd64,  ext: "", family: codex, harness: codex-nono, nono_profile: nolabs-ai/codex, expect: '["landlock","seccomp-notify","seccomp-filter","no-new-privs"]', optional: true }
+          - { os: macos, runner: macos-latest,  arch: darwin-arm64, ext: "", family: codex, harness: codex-nono, nono_profile: nolabs-ai/codex, expect: '["seatbelt"]', optional: true }
           # gemini — real agent, model stubbed; as-is vs its sandbox (Seatbelt on macOS, container on Linux).
           - { os: linux, runner: ubuntu-latest, arch: linux-amd64,  ext: "", family: gemini, harness: gemini }
           # gemini-docker re-execs the whole CLI in a container; the mock is reached and auth injected
@@ -225,7 +241,7 @@ jobs:
           fi
       - if: matrix.runtime == 'firejail'
         run: sudo apt-get update || true; sudo apt-get install -y firejail
-      - if: matrix.runtime == 'nono'
+      - if: matrix.runtime == 'nono' || matrix.harness == 'codex-nono'
         name: install nono
         shell: bash
         run: |
@@ -264,6 +280,8 @@ jobs:
           OUT: ${{ env.REPORT }}
           RUNNER: ${{ matrix.runner }}
           CODEX_SANDBOX: ${{ matrix.sandbox }}
+          # Only the codex-nono row sets this; it swaps Codex's own sandbox for the declared profile.
+          CODEX_NONO_PROFILE: ${{ matrix.nono_profile }}
         run: ./scripts/run-probe-via-codex-stub.sh
 
       - if: matrix.family == 'gemini'

@@ -1,4 +1,4 @@
-// Ticket #27: installing a nono registry pack mutates the machine it runs on — it splices
+// Ticket #27/#29: installing a nono registry pack mutates the machine it runs on — it splices
 // Codex plugin wiring into ~/.codex on install, even under --dry-run. The properties that keep
 // that safe are ORDERING properties in shell, and the run that would prove them needs a real
 // registry, a real pack and a real mutation of somebody's home directory. That run is exercised
@@ -18,7 +18,7 @@ const scripts = path.join(path.dirname(fileURLToPath(import.meta.url)), "..", "s
 const read = (name) => fs.readFileSync(path.join(scripts, name), "utf8");
 
 // Every script that installs a pack owes the same three things, in this order.
-const CALLERS = ["attest-profile.sh"];
+const CALLERS = ["attest-profile.sh", "run-probe-via-codex-stub.sh"];
 
 // `nono pull` is the install; nothing may precede it but the warning and the snapshot+trap.
 const at = (source, needle) => {
@@ -57,6 +57,17 @@ assert.match(
   lib,
   /if \[ "\$\{CI:-\}" != "true" \] && \[ "\$\{NONO_PACK_ACK:-\}" != "1" \]; then\n\s*echo "::error/,
   "off CI, an unacknowledged run must refuse to install rather than warn and continue",
+);
+
+// The codex-nono row's confinement must be the vendor's alone: `nono run --profile <id> --`, no
+// flags of ours. A narrowing added here would make the row measure our configuration instead.
+const codex = read("run-probe-via-codex-stub.sh");
+const invocation = codex.match(/NONO=\(nono run [^)]*\)/);
+assert.ok(invocation, "expected the codex-nono launcher to build a `nono run` invocation");
+assert.equal(
+  invocation[0],
+  'NONO=(nono run --profile "$CODEX_NONO_PROFILE" --)',
+  "codex-nono must pass nono nothing but the profile — any other flag is a restriction this project invented",
 );
 
 // Ordering is only half of it — the removal has to actually notice residue. That runs against a
