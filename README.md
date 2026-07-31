@@ -97,8 +97,10 @@ One job, three failure modes it exists to catch:
 
 ## What lands here
 
-Per the repo-split decision (recorded in the wayfinder maps under `.scratch/`
-in `sandbox-probe`):
+Per the repo-split decision (recorded in the wayfinder maps under
+[`.scratch/`](.scratch/) in this repository — `seed-ipc-targets` and
+`sandbox-canary-nesting` moved wholesale, `profile-attestation` from its
+ticket 05 onward):
 
 - ✅ `go.mod` — the pinned probe dependency
 - ✅ `scripts/seed-decoys.sh` — parent-side canary seeding
@@ -110,8 +112,11 @@ in `sandbox-probe`):
 - ✅ `tests/agent-driven/*.sh` — the baseline/sandbox pair scripts
 - ✅ `reports/*.json`, `trajectories/*.json` — the stored fixtures
 - ✅ `site/` — the client-side reporting page, and the matrix's aggregate/publish job
-- ✅ `docs/reporting-site-plan.md` and `docs/adr/0001-*` (the comparison-methodology
-  ADR; ADR 0002 decides the probe's own registry shape and stays with the probe)
+- ✅ `docs/reporting-site-plan.md`, `docs/adr/0001-*` (the comparison-methodology
+  ADR) and [`CONTEXT.md`](CONTEXT.md) — this repository is now the only place
+  the comparison-side ubiquitous language is defined. ADR 0002 decides the
+  probe's own registry shape and stays with the probe; see
+  [its copy there](https://github.com/controlplaneio/sandbox-probe/blob/main/docs/adr/0002-seed-ipc-and-process-targets.md).
 
 **Staying** in `sandbox-probe`: the Go binary (`cmd/`, `pkg/`, `main.go`), its
 tests, and `list-targets` — the probe's own registry of what it checks, which
@@ -172,13 +177,63 @@ publishing.
 
 ## Methodology
 
-Two ideas do the load-bearing work.
+Full definitions live in [`CONTEXT.md`](CONTEXT.md) — the ubiquitous
+language for this repository, and the only place the comparison-side terms
+below are defined. What follows is the shape of the methodology; read
+`CONTEXT.md` for the precise rules.
 
 **Baseline normalisation.** A finding's *absence* only means "the sandbox
 blocked it" if the capability was achievable on that host at all. Everything
-is read against an unconfined same-OS baseline run: leaked (baseline could,
-this harness still can), blocked (baseline could, this harness cannot), n/a
-(baseline could not either — nothing was proven).
+is read against an unconfined same-OS **baseline** run — the probe run on the
+bare host, before any sandbox is applied.
+
+**Cell states.** Every capability cell in the matrix is one of three
+baseline-normalised states:
+
+| State | Meaning |
+| --- | --- |
+| 🟥 leaked | baseline could do this, this harness still can — a door the sandbox left open |
+| 🟩 blocked | baseline could do this, this harness cannot — the sandbox closed a real door |
+| ⬜ n/a | baseline could not do this either — nothing was achievable, so nothing was proven |
+
+**Capability categories.** Findings roll up into 8 columns. Seven are
+baseline-normalised (a door the baseline had to have for the cell to mean
+anything); the eighth, Privileged execution, is absolute (running as root is
+🟥 regardless of baseline):
+
+Filesystem read, Filesystem write, Network egress, Local services, IPC
+sockets, Process visibility, Host mounts, Privileged execution. An unmapped
+future finding type gets an **Other** column rather than being dropped.
+Context findings (`sandbox_detection`, `hostname_detection`,
+`environment_detection`, `proxy_detection`, `env_secret_detection`) are shown
+but not counted.
+
+**Exposure.** The headline scalar: the count of leaked (🟥) capability
+categories for one harness identity at one point — 0 to 8. Rising exposure
+over time means a widening sandbox; falling means a tightening one.
+
+**Seeding parity.** A finding's absence only proves a block if the target was
+*achievable* in the first place — on a bare CI runner most sensitive paths,
+sockets, and processes simply don't exist yet. The probe exports its own
+target registry (`list-targets`); a seeder soft-plants a decoy at each target
+(write only where nothing real already exists) **identically before the
+baseline run and every sandbox run**. Parity is load-bearing: seed one side
+and not the other and a real block becomes indistinguishable from "the decoy
+was never there" — a false 🟩.
+
+**Time-series identity.** Runs group into one trend line by the tuple
+`(os, harness)` (e.g. `macos-claude-sandbox`) — read from tags so a new
+harness joins with no code change. A plotted point is a distinct
+configuration **fingerprint** (`harness version + probe commit + kernel
+release + OS release`); runs sharing a fingerprint collapse to one point, the
+axis orders by first-seen, so it's a sequence of distinct configurations, not
+wall-clock time.
+
+**Flips.** A **flip** is one capability changing state between two
+consecutive points on one identity's time series — 🟩→🟥 is a degradation,
+🟥→🟩 is an improvement — attributed to whichever fingerprint component
+moved (harness version, probe version, kernel, OS). The **flip-log** is the
+chronological list of flips, the actionable text beside the exposure chart.
 
 **Canary nesting.** Canaries are seeded in the *parent* host, and the sandbox
 is launched as a genuine child of that seeded parent. The question is whether
@@ -196,7 +251,19 @@ begin with". Any sharing flags the harness adds to reconnect them are the
 harness's own choice, not a vendor's — so the result would measure our
 configuration rather than the sandbox's. Comparisons are only kept where
 *someone else* made the configuration decision: an agent vendor shipping its
-own sandbox, or a declared, versioned policy profile.
+own sandbox, or a declared, versioned policy profile — see the
+[`profile-attestation`](.scratch/profile-attestation/map.md) wayfinder map
+for the emerging declared-vs-actual variant of this idea.
+
+## What runs the comparison
+
+Everything here compares reports produced by
+[`sandbox-probe`](https://github.com/controlplaneio/sandbox-probe) — a
+single static Go binary that runs inside a sandbox and records what the
+kernel let it do. This repository has no probe of its own; it depends on a
+pinned release of it (see [Dependency on the probe](#dependency-on-the-probe)
+above). If you want to run the probe standalone, without any of this
+methodology, see the probe's own README.
 
 ## Licence
 

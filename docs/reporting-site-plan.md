@@ -19,11 +19,12 @@ Language and rationale: see [CONTEXT.md](../CONTEXT.md) and
 - [ ] Wire it into the stub plumbing (`scripts/stub-common.sh`) so it runs
       **identically before the baseline and every sandbox run**. Parity is
       load-bearing: seeding one side only produces false 🟩 wins.
-- [ ] IPC socket / named-pipe / process decoys — design closed, see
-      [ADR 0002](adr/0002-seed-ipc-and-process-targets.md). Implementation
-      (the `kind` field on `list-targets`, per-kind dispatch in
-      `seed-decoys.sh`, the Windows named-pipe detection task) not yet
-      built.
+- [ ] IPC socket / named-pipe / process decoys — design closed, see the
+      probe's [ADR 0002](https://github.com/controlplaneio/sandbox-probe/blob/main/docs/adr/0002-seed-ipc-and-process-targets.md)
+      (it decides the probe's own registry shape, so it stays with the
+      probe). Implementation (the `kind` field on `list-targets`, per-kind
+      dispatch in `seed-decoys.sh`, the Windows named-pipe detection task)
+      not yet built.
 
 ## Track 3 — publish pipeline (in scan-matrix.yaml)
 
