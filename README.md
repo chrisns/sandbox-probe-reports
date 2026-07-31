@@ -151,6 +151,44 @@ artifact, appends one commit to the orphan `gh-pages-data` branch at
 and deploys `site/` + that payload to GitHub Pages
 (`scripts/publish-site.sh`). See [ADR 0001](docs/adr/0001-client-side-site-over-data-branch.md).
 
+### Running the attestation
+
+`scan-matrix.yaml` also carries an `attest` job — the declared-versus-actual run
+(`scripts/attest-profile.sh`). It seeds the host, takes an unconfined baseline,
+resolves a nono registry profile, runs the probe under it with `nono run
+--profile <id> --` and nothing else, and publishes the attestation. The profile
+is a `workflow_dispatch` input, so dispatching against a different registry
+profile attests that one with no code change.
+
+It is in the gated workflow rather than the per-push smoke suite for one reason:
+
+> **Installing a nono registry pack mutates local agent configuration.** It
+> splices Codex plugin wiring into `~/.codex/config.toml` and `~/.codex/plugins/`
+> at *install* time. `nono`'s `--dry-run` skips sandbox verification and
+> execution — **not** pack installation. Confirmed against nono 0.68.0.
+
+So removal is an explicit, verified step, never an assumption
+(`scripts/nono-pack.sh`): the mutated paths are snapshotted before the install,
+`nono remove` runs from an `EXIT` trap armed *before* the install so a crash
+still reverses the splice, and the snapshot is compared afterwards — a run that
+leaves residue fails and names the file. Installing removes first rather than
+trusting either the pack's idempotence or the last run's cleanup.
+
+To run it on your own machine, understand that the box above applies to *your*
+`~/.codex`. The script says so before it installs anything and will not start
+until you accept it:
+
+```sh
+NONO_PACK_ACK=1 PROFILE=nolabs-ai/codex PROBE=./bin/sandbox-probe ./scripts/attest-profile.sh
+```
+
+The same lifecycle backs the `codex-nono` matrix row (`CODEX_NONO_PROFILE` in
+`scripts/run-probe-via-codex-stub.sh`). `tests/nono-pack-wiring.test.mjs` runs on
+every push and fails if the warning, snapshot or trap ever stops preceding the
+install; the real-registry half — that `nono remove` reverses a real pack — is
+exercised by the gated job, which deliberately crashes a run mid-way and asserts
+the machine came back.
+
 ## One-time setup this repository still needs
 
 Two things a human has to do once, before the first matrix run, or that run
@@ -300,9 +338,22 @@ unattested, which are excluded by design, and where nono's own published schema
 is stale, are in
 [`docs/attestation-mapping.md`](docs/attestation-mapping.md) — read it before
 extending either side. It is published as its own page (`site/attestation.html`)
-rather than a matrix column, rendering the checked-in `site/attestation.json`
-(`node scripts/build-attestation.mjs` regenerates it), so a verdict can be read
-without nono and without running a scan.
+rather than a matrix column, rendering `site/attestation.json`, so a verdict can
+be read without nono and without running a scan. That document is either the
+checked-in fixture build (`node scripts/build-attestation.mjs`) or an observed
+run's, and its own `source` field says which — the two can never be confused.
+Producing the observed one is [Running the attestation](#running-the-attestation)
+above.
+
+**The `codex-nono` row.** Separately from the attestation, the real Codex CLI
+also runs under that same declared profile as an *ordinary* matrix row, beside
+the native-sandbox `codex-sandbox` row, on the baseline-normalized methodology
+entirely unchanged — two genuine sandboxing choices, read against each other. Its
+confinement is `nono run --profile <id> --` and nothing else, so the row measures
+the vendor's published claim rather than any flag of ours; everything the run
+needs to read or write lives inside a path the profile already grants. It carries
+its own harness identity and tags the resolved profile version, so it forms its
+own time series and a flip is attributable to a specific published claim.
 
 ### Adding a sandbox row
 

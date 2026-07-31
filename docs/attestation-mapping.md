@@ -12,6 +12,14 @@ manifest — never the authored profile. Groups, aliases, inheritance and
 protection bypasses are already expanded there; diffing the authored profile
 would mean reimplementing nono's resolver.
 
+In a real run ([`scripts/attest-profile.sh`](../scripts/attest-profile.sh)) that
+document is `policy.json` in the installed pack —
+`${NONO_CONFIG:-~/.config/nono}/packages/<namespace>/<name>/policy.json` — which
+is the artifact `nono run --profile` actually applies. `nono profile show` prints
+the same thing for humans but not as JSON. If the pack layout moves, the script
+fails naming the path and listing what it did find rather than attesting against
+something else.
+
 ## The mapping
 
 Each row is one **declared unit**: one thing the capability set claims, and the
