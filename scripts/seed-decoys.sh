@@ -28,7 +28,9 @@ fi
 # used to "succeed" with `planted 0` and every downstream comparison silently
 # became "nothing was there to read". An empty seedable set is the same
 # failure wearing a different hat.
-targets=$("$PROBE" list-targets | jq -r '.[] | select(.seedable) | .path')
+# File targets only: a socket or a process decoy is not something bash can create, and a regular
+# file written at one would shadow the target the probe's own "seed" command plants there.
+targets=$("$PROBE" list-targets | jq -r '.[] | select(.seedable and .kind == "file") | .path')
 if [ -z "$targets" ]; then
   echo "seed-decoys: $PROBE list-targets returned no seedable targets" >&2
   exit 1
