@@ -2,8 +2,12 @@
 # Run sandbox-probe DIRECTLY inside a sandbox runtime (no agent, no model). Distinct keyless OS
 # sandbox mechanisms; the probe fingerprints each. RUNTIME selects the wrapper:
 #   srt      — @anthropic-ai/sandbox-runtime: bubblewrap (Linux) / Seatbelt (macOS) + network proxy
-#   firejail — SUID namespaces + seccomp (Linux)
+#   firejail — SUID namespaces + whatever its own default profile applies (Linux)
 #   nono     — capability sandbox: Landlock + seccomp-notify (Linux) / Seatbelt (macOS)
+#
+# Each is launched with no restriction this repository invented — only what the tool needs to start
+# and to emit its report — so a blocked capability is the vendor's posture, not ours. None of the
+# three blocks network egress: none of them does out of the box.
 #
 # These three restrict the *same* filesystem by policy, so they nest genuinely in the seeded parent.
 # The rootfs-swapping runtimes (docker, podman, bwrap, nspawn, gvisor) were retired from the
@@ -50,12 +54,17 @@ JSON
     rm -f "$SETTINGS"
     ;;
   firejail)
-    firejail --quiet --net=none --seccomp "${CMD[@]}" || true
+    # Its own default profile, nothing added: --quiet only quiets firejail's banner. Bare firejail
+    # has open network and full filesystem read/write; the network and seccomp flags this repo used
+    # to pass were narrowings firejail does not apply itself (ticket #32).
+    firejail --quiet "${CMD[@]}" || true
     ;;
   nono)
-    # Read-only cwd, write only to the report dir, no network. stdin from /dev/null so a denial
-    # never blocks on an interactive prompt.
-    nono run --silent --allow-cwd --allow "$(dirname "$OUT_ABS")" --block-net "${CMD[@]}" </dev/null || true
+    # Read-only cwd, write only to the report dir. nono denies everything with zero flags and will
+    # not start non-interactively, so these grants are the minimum to run at all, not a narrowing.
+    # Network is left as nono ships it — allowed. stdin from /dev/null so a denial never blocks on
+    # an interactive prompt.
+    nono run --silent --allow-cwd --allow "$(dirname "$OUT_ABS")" "${CMD[@]}" </dev/null || true
     ;;
   *)
     echo "::error::unknown RUNTIME '${RUNTIME}'"; exit 1 ;;

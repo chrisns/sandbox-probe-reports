@@ -258,6 +258,30 @@ own sandbox, or a declared, versioned policy profile — see the
 [`profile-attestation`](.scratch/profile-attestation/map.md) wayfinder map
 for the emerging declared-vs-actual variant of this idea.
 
+**Vendor defaults on the rows that stay.** srt, firejail and nono are
+launched with no restriction this repository invented. firejail gets only
+`--quiet` and applies its own default profile; nono keeps only the
+working-directory and output-directory grants — it denies everything with
+zero flags and will not start without them; srt keeps its deny-by-default
+settings file, widened only for writes to the workspace and temp so the probe
+can emit a report. **None of the three blocks network egress**, because none
+of them does out of the box: those rows now show egress reachable wherever
+the same-OS baseline could reach it, and their exposure rises accordingly.
+That is the vendor's real posture, not a regression. Dropping firejail's
+added syscall filter is also expected to change the kernel mechanisms
+reported beside its `firejail` badge — a finding about firejail's own default
+profile, recorded in `.github/workflows/scan-matrix.yaml`, not an assertion
+to quietly patch.
+
+These three rows stay while a bare container run does not. Each restricts the
+seeded parent's own filesystem by policy instead of swapping in a fresh root,
+so the run really is a child of the seeded host — and the minimum
+hand-authored inline policy needed to start the tool and get a report out is
+itself a real deployment pattern: this is how these tools are driven in
+practice. That is not circular in the way a bare container run is, where
+every route into the sandbox exists only because this repository chose to
+open it.
+
 ## What runs the comparison
 
 Everything here compares reports produced by

@@ -16,7 +16,7 @@ wayfinder:map
 
 A new "profile attestation" capability: given a declared, versioned,
 externally-authored sandbox profile — starting with nono's registry packs
-(e.g. `nolabs-ai/codex`, formerly `always-further/codex`) — run
+(e.g. `nolabs-ai/codex`) — run
 `sandbox-probe` under that profile and diff the *empirically observed*
 reachable surface against the profile's *declared* grants. Surfaces two new
 finding classes the project doesn't have today: **declared-but-unreachable**

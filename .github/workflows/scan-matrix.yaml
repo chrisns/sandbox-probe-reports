@@ -109,6 +109,10 @@ jobs:
           # podman, bwrap, nspawn, gvisor) are retired: they were never nested in the seeded parent,
           # and any sharing flags this repo adds to nest them would be its own configuration choice
           # rather than a vendor's. See the retirement note in README.md.
+          # spec #5.3 (#32): none of the three is launched with a restriction this repo invented —
+          # firejail gets --quiet and its own default profile, nono keeps only the grants it needs
+          # to start, srt keeps its deny-by-default settings widened for writes. Network egress is
+          # open on all three, as it is out of the box, so their rows read more exposed than before.
           # spec #6: as for claude-sandbox — same bwrap engine, wrapper name now resolves.
           - { os: linux, runner: ubuntu-latest, arch: linux-amd64,  ext: "", family: sandbox, harness: srt,      runtime: srt,      expect: '["bubblewrap"]' }
           - { os: macos, runner: macos-latest,  arch: darwin-arm64, ext: "", family: sandbox, harness: srt,      runtime: srt,      expect: '["seatbelt"]' }
@@ -344,6 +348,13 @@ jobs:
       # rule can now label it `bubblewrap` where it previously read `unknown`. That is the mislabel
       # the spec accepts, not a miss; this row's mechanism-only `expect` still passes either way, so
       # it is left as-is pending a scheduled run that shows what nono actually reports.
+      #
+      # FINDING (spec #5.3, #32: record, do not preserve the old assertion): firejail no longer gets
+      # this repo's --seccomp, so the kernel mechanisms reported beside its badge are now whatever
+      # firejail's own default profile installs — `seccomp-filter` is no longer guaranteed to appear,
+      # and if it does, that is firejail's default profile rather than our flag. That is a finding
+      # about the tool. This row's expectation is therefore the vendor default and nothing more: the
+      # `firejail` wrapper name, which is read from process ancestry and unaffected by the filter.
       - if: matrix.expect != ''
         name: assert sandbox engaged
         shell: bash
