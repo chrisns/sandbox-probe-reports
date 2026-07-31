@@ -3,85 +3,268 @@
 The **comparison and reporting harness** built on top of
 [`sandbox-probe`](https://github.com/controlplaneio/sandbox-probe).
 
+`sandbox-probe` is a single static Go binary you drop *inside* a sandbox to
+report what it can see and reach. It is self-contained and useful on its own.
+This repository is the other half: everything that turns many probe reports
+into a comparison — the scan matrix, the seeder, the per-runtime launchers,
+the agent stubs, the baseline-normalised methodology, and the reporting site.
+
 > **Status: staging.** This repo currently lives under `chrisns` while the
-> split settles; it is destined for `controlplaneio`. Nothing here is
-> migrated yet — see [What lands here](#what-lands-here).
+> split settles; it is destined for `controlplaneio`. Only the dependency
+> edge and its smoke job have landed so far — see [What lands here](#what-lands-here).
 
 ## Why this is a separate repo
 
-`sandbox-probe` is a single static Go binary you drop *inside* a sandbox to
-report what it can see and reach. That is self-contained and useful on its
-own: run it, read the output.
-
-Everything about **comparing** sandboxes is a different piece of software
-with a much harder problem — *what counts as a fair comparison?* — and it
-was generating churn inside the probe's repo without touching the probe's
-own behaviour. Splitting it means the probe stays stable and small, and the
-comparison methodology can evolve (including being wrong and getting
-corrected) without that ever destabilising the thing people depend on.
+Comparing sandboxes is a different piece of software with a much harder
+problem — *what counts as a fair comparison?* — and it was generating churn
+inside the probe's repo without touching the probe's own behaviour.
+Splitting it means the probe stays stable and small, and the comparison
+methodology can evolve (including being wrong and getting corrected) without
+that ever destabilising the thing people depend on.
 
 That "being wrong and getting corrected" is not hypothetical. The split was
-triggered by discovering that the existing comparison rows for five
-sandbox runtimes were not measuring what they claimed to — see
+triggered by discovering that the existing comparison rows for five sandbox
+runtimes were not measuring what they claimed to — see
 [Methodology](#methodology).
+
+## Dependency on the probe
+
+This repo carries its own `go.mod` requiring a pinned
+`github.com/controlplaneio/sandbox-probe`, rather than checking the probe out
+at a ref. Dependabot's `gomod` ecosystem tracks a `go.mod` requirement
+automatically and resolves off git tags directly; a `ref:` pinned inside a
+workflow is an opaque string nothing watches, and would rot silently.
+
+The requirement is declared with Go's **`tool` directive**, not a bare
+`require`:
+
+```
+tool github.com/controlplaneio/sandbox-probe
+```
+
+That matters. This repo imports no probe package — it *runs the binary*. A
+bare `require` is therefore unused, and `go mod tidy` deletes it, taking the
+Dependabot coverage with it and leaving no trace. The `tool` directive is the
+mechanism the toolchain provides for exactly this case, and the smoke job
+asserts the pin survives a tidy so it cannot rot back.
+
+Build the pinned probe with:
+
+```sh
+go build -o bin/sandbox-probe github.com/controlplaneio/sandbox-probe
+```
+
+### The pin is currently a placeholder
+
+It points at **`v1.1.0`**, which is not the version anyone wants:
+
+- The probe's `v4.x` tags are **not resolvable as Go module versions**. The
+  module path is `github.com/controlplaneio/sandbox-probe` with no `/v4`
+  suffix, so the proxy rejects them (*"module path must match major
+  version"*). `v1.1.0` is the newest tag that resolves at all.
+- `v1.1.0` predates `list-targets`, so **the smoke job's seed step fails**
+  against it. That is honest signal, not a bug in the job: the registry
+  contract genuinely is not there yet.
+
+Both clear when the probe's release pipeline is fixed
+([controlplaneio/sandbox-probe#14](https://github.com/controlplaneio/sandbox-probe/issues/14))
+and cuts a tag whose major version matches its module path. Then this is a
+one-line bump — which Dependabot will raise on its own.
+
+## The smoke job
+
+`.github/workflows/smoke.yml` runs on **every push and pull request**,
+including from forks. It needs no agent CLI, no API key, no model access and
+no sandbox runtime — the opposite of the full matrix:
+
+```
+assert the probe pin survives `go mod tidy`
+go build the probe            # version resolved from go.mod — the Dependabot pin
+run the seeder against it     # reads list-targets across the repo boundary
+run one direct baseline scan
+assert the report parses and carries an expected finding type
+```
+
+One job, three failure modes it exists to catch:
+
+- **The pin is dropped or broken** — tidy assertion, or the build step.
+- **The binary is unusable** — a scan producing no parseable report fails
+  here rather than in the next weekly matrix run.
+- **The registry contract drifts** — the seeder reads `list-targets` from a
+  now-external module. A schema change in the probe that the seeder cannot
+  parse fails here. This is the drift the split makes possible and nothing
+  else catches.
 
 ## What lands here
 
 Per the repo-split decision (recorded in the wayfinder maps under
-`.scratch/` in `sandbox-probe`):
+[`.scratch/`](.scratch/) in this repository — `seed-ipc-targets` and
+`sandbox-canary-nesting` moved wholesale, `profile-attestation` from its
+ticket 05 onward):
 
-- `.github/workflows/scan-matrix.yaml` — the per-harness × OS scan matrix
-- `scripts/seed-decoys.sh` — parent-side canary seeding
-- `scripts/run-probe-in-sandbox.sh` + the per-agent stub runners
-- `tests/*.sh` — the baseline/sandbox pair scripts
-- `site/` — the client-side reporting page
-- `docs/reporting-site-plan.md` and the comparison-methodology ADRs
+- ✅ `go.mod` — the pinned probe dependency
+- ✅ `scripts/seed-decoys.sh` — parent-side canary seeding
+- ✅ `.github/workflows/smoke.yml` — the boundary smoke job
+- ✅ `.github/workflows/scan-matrix.yaml` — the per-harness × OS scan matrix
+- ✅ `.github/workflows/scan-gemini.yaml` — the standalone Gemini sandbox-image scan
+- ✅ `scripts/run-probe-in-sandbox.sh` + the per-agent stub runners, the shared
+  `stub-common.sh` plumbing, `mock-agent-api.mjs`, and the agent run scripts
+- ✅ `tests/agent-driven/*.sh` — the baseline/sandbox pair scripts
+- ✅ `reports/*.json`, `trajectories/*.json` — the stored fixtures
+- ✅ `site/` — the client-side reporting page, and the matrix's aggregate/publish job
+- ✅ `docs/reporting-site-plan.md`, `docs/adr/0001-*` (the comparison-methodology
+  ADR) and [`CONTEXT.md`](CONTEXT.md) — this repository is now the only place
+  the comparison-side ubiquitous language is defined. ADR 0002 decides the
+  probe's own registry shape and stays with the probe; see
+  [its copy there](https://github.com/controlplaneio/sandbox-probe/blob/main/docs/adr/0002-seed-ipc-and-process-targets.md).
 
-**Staying** in `sandbox-probe`: the Go binary (`cmd/`, `pkg/`, `main.go`),
-its tests, and `list-targets` — the probe's own registry of what it checks,
-which belongs next to the code it describes so the seeder can't drift from
-it.
+**Staying** in `sandbox-probe`: the Go binary (`cmd/`, `pkg/`, `main.go`), its
+tests, and `list-targets` — the probe's own registry of what it checks, which
+belongs next to the code it describes so the seeder cannot drift from it.
+Also staying: `tests/fingerprint/*.sh` and the minimal `run-bwrap.sh` /
+`run-docker.sh` / `run-podman.sh` launchers they invoke. Those assert that the
+probe's own `sandbox_detection` identifies a runtime — a probe capability, not
+a comparison. That is the line between `tests/fingerprint` and the
+`tests/agent-driven` scripts that came here.
+
+## Running the matrix
+
+`scan-matrix.yaml` keeps its weekly cron, its `workflow_dispatch`, and its
+`matrix/**` push trigger. Its `build` job compiles the probe **from the module
+version pinned in `go.mod`** — `go build github.com/controlplaneio/sandbox-probe`
+— once per platform, with darwin built on macOS and windows on Windows, and
+shares the binaries to the scan jobs as artifacts. Nothing but that binary
+comes from outside this repository: every script, stub and config the scan rows
+invoke resolves under `scripts/` here.
 
 **History does not migrate.** Files arrive as a fresh commit; the decision
 record lives in the ADRs and wayfinder maps rather than in `git log`.
 
-## Dependency on the probe
+A final `aggregate` job (`needs: [build, scan]`, `if: always()`, so a partially
+failed matrix still publishes what succeeded) collects every scan row's report
+artifact, appends one commit to the orphan `gh-pages-data` branch at
+`data/<run-timestamp>/<os>-<harness>.json`, rebuilds the concatenated
+`all-reports.json` from the whole branch history (`scripts/build-site-data.mjs`),
+and deploys `site/` + that payload to GitHub Pages
+(`scripts/publish-site.sh`). See [ADR 0001](docs/adr/0001-client-side-site-over-data-branch.md).
 
-This repo will carry its own `go.mod` requiring a pinned
-`github.com/controlplaneio/sandbox-probe` version, rather than checking the
-probe out at a ref. That is deliberate: Dependabot's `gomod` ecosystem
-tracks a `go.mod` requirement automatically, whereas a `ref:` pinned inside
-a workflow is an opaque string nothing watches, and would rot silently.
+## One-time setup this repository still needs
+
+Two things a human has to do once, before the first matrix run, or that run
+publishes nothing (the aggregate job's `git push` and Pages deploy both fail at
+the last step against a repository that has neither):
+
+1. **Create the orphan `gh-pages-data` branch.** `publish-site.sh` creates it
+   itself on first run (`git worktree add --orphan`) if it doesn't already
+   exist on the remote — but the workflow's `contents: write` permission has to
+   actually be able to push a new branch, so confirm branch protection rules
+   don't block it.
+2. **Enable GitHub Pages with the "GitHub Actions" source**, under Settings →
+   Pages, in `chrisns/sandbox-probe-reports`. Without this, `deploy-pages`
+   has nothing to deploy to.
+
+Nothing here can be verified by running tests; the first real matrix run is
+the verification.
+
+## No current data here yet
+
+This repository publishes no comparison results at the moment. The dormant
+`controlplaneio/sandbox-probe-reports` still carried a single `gemini/` sample
+directory from March 2026 before the fresh-start commit — **that was a stale
+sample, not current data**, and it did not migrate. Nothing under this repo is
+a published result until the scan matrix runs here and the data branch starts
+publishing.
 
 ## Methodology
 
-Two ideas do the load-bearing work.
+Full definitions live in [`CONTEXT.md`](CONTEXT.md) — the ubiquitous
+language for this repository, and the only place the comparison-side terms
+below are defined. What follows is the shape of the methodology; read
+`CONTEXT.md` for the precise rules.
 
 **Baseline normalisation.** A finding's *absence* only means "the sandbox
-blocked it" if the capability was achievable on that host at all.
-Everything is read against an unconfined same-OS baseline run: leaked
-(baseline could, this harness still can), blocked (baseline could, this
-harness cannot), n/a (baseline could not either — nothing was proven).
+blocked it" if the capability was achievable on that host at all. Everything
+is read against an unconfined same-OS **baseline** run — the probe run on the
+bare host, before any sandbox is applied.
 
-**Canary nesting.** Canaries are seeded in the *parent* host, and the
-sandbox is launched as a genuine child of that seeded parent. The question
-is whether a process inside the sandbox can reach out to something outside
-it. Canaries are never planted *inside* the sandbox: that would test
-whether the sandbox's own environment happens to contain artefacts, which
-is not the threat model — a real attacker in a real sandbox is trying to
-reach *out*.
+**Cell states.** Every capability cell in the matrix is one of three
+baseline-normalised states:
+
+| State | Meaning |
+| --- | --- |
+| 🟥 leaked | baseline could do this, this harness still can — a door the sandbox left open |
+| 🟩 blocked | baseline could do this, this harness cannot — the sandbox closed a real door |
+| ⬜ n/a | baseline could not do this either — nothing was achievable, so nothing was proven |
+
+**Capability categories.** Findings roll up into 8 columns. Seven are
+baseline-normalised (a door the baseline had to have for the cell to mean
+anything); the eighth, Privileged execution, is absolute (running as root is
+🟥 regardless of baseline):
+
+Filesystem read, Filesystem write, Network egress, Local services, IPC
+sockets, Process visibility, Host mounts, Privileged execution. An unmapped
+future finding type gets an **Other** column rather than being dropped.
+Context findings (`sandbox_detection`, `hostname_detection`,
+`environment_detection`, `proxy_detection`, `env_secret_detection`) are shown
+but not counted.
+
+**Exposure.** The headline scalar: the count of leaked (🟥) capability
+categories for one harness identity at one point — 0 to 8. Rising exposure
+over time means a widening sandbox; falling means a tightening one.
+
+**Seeding parity.** A finding's absence only proves a block if the target was
+*achievable* in the first place — on a bare CI runner most sensitive paths,
+sockets, and processes simply don't exist yet. The probe exports its own
+target registry (`list-targets`); a seeder soft-plants a decoy at each target
+(write only where nothing real already exists) **identically before the
+baseline run and every sandbox run**. Parity is load-bearing: seed one side
+and not the other and a real block becomes indistinguishable from "the decoy
+was never there" — a false 🟩.
+
+**Time-series identity.** Runs group into one trend line by the tuple
+`(os, harness)` (e.g. `macos-claude-sandbox`) — read from tags so a new
+harness joins with no code change. A plotted point is a distinct
+configuration **fingerprint** (`harness version + probe commit + kernel
+release + OS release`); runs sharing a fingerprint collapse to one point, the
+axis orders by first-seen, so it's a sequence of distinct configurations, not
+wall-clock time.
+
+**Flips.** A **flip** is one capability changing state between two
+consecutive points on one identity's time series — 🟩→🟥 is a degradation,
+🟥→🟩 is an improvement — attributed to whichever fingerprint component
+moved (harness version, probe version, kernel, OS). The **flip-log** is the
+chronological list of flips, the actionable text beside the exposure chart.
+
+**Canary nesting.** Canaries are seeded in the *parent* host, and the sandbox
+is launched as a genuine child of that seeded parent. The question is whether
+a process inside the sandbox can reach out to something outside it. Canaries
+are never planted *inside* the sandbox: that would test whether the sandbox's
+own environment happens to contain artefacts, which is not the threat model —
+a real attacker in a real sandbox is trying to reach *out*.
 
 This is also why the five rootfs-swapping runtimes (docker, podman, bwrap,
 nspawn, gvisor, driven directly with no agent) were **retired from the
 comparison** rather than fixed. Each was launched as a fresh, disconnected
-environment that had never been nested in the seeded parent, so "the
-sandbox blocked it" was indistinguishable from "there was never a route
-there to begin with". Any sharing flags the harness adds to reconnect them
-are the harness's own choice, not a vendor's — so the result would measure
-our configuration rather than the sandbox's. Comparisons are only kept
-where *someone else* made the configuration decision: an agent vendor
-shipping its own sandbox, or a declared, versioned policy profile.
+environment that had never been nested in the seeded parent, so "the sandbox
+blocked it" was indistinguishable from "there was never a route there to
+begin with". Any sharing flags the harness adds to reconnect them are the
+harness's own choice, not a vendor's — so the result would measure our
+configuration rather than the sandbox's. Comparisons are only kept where
+*someone else* made the configuration decision: an agent vendor shipping its
+own sandbox, or a declared, versioned policy profile — see the
+[`profile-attestation`](.scratch/profile-attestation/map.md) wayfinder map
+for the emerging declared-vs-actual variant of this idea.
 
-## License
+## What runs the comparison
 
-See `LICENSE` once migrated (`sandbox-probe` is Apache-2.0).
+Everything here compares reports produced by
+[`sandbox-probe`](https://github.com/controlplaneio/sandbox-probe) — a
+single static Go binary that runs inside a sandbox and records what the
+kernel let it do. This repository has no probe of its own; it depends on a
+pinned release of it (see [Dependency on the probe](#dependency-on-the-probe)
+above). If you want to run the probe standalone, without any of this
+methodology, see the probe's own README.
+
+## Licence
+
+Apache-2.0. See [`LICENSE`](LICENSE) — the same licence as `sandbox-probe`.
