@@ -26,6 +26,29 @@ const EGRESS_FINDING = "external_host_connectivity";
 // its schema), so `udp_ports_open` has nothing on the declared side to diff against.
 const PORT_FINDING = "tcp_ports_open";
 
+// Sockets: nono's six pathname AF_UNIX grant fields, one per (scope, mode) pair.
+// Only pathname sockets are grantable — abstract-namespace ones never are, and the
+// probe reports paths, so the mode half is a label: the probe sees that a socket is
+// reachable, not whether it connected or bound.
+const SOCKET_FINDING = "unix_socket_detection";
+const SOCKET_GRANTS = {
+  unix_socket: ["file", "connect"],
+  unix_socket_bind: ["file", "connect+bind"],
+  unix_socket_dir: ["dir-children", "connect"],
+  unix_socket_dir_bind: ["dir-children", "connect+bind"],
+  unix_socket_subtree: ["dir-subtree", "connect"],
+  unix_socket_subtree_bind: ["dir-subtree", "connect+bind"],
+};
+
+// AF_UNIX mediation is opt-in (`linux.af_unix_mediation`), so absent means off. With
+// it off the socket grants are not enforced at all, whatever they say: socket results
+// are then a *modifier* on the reading, never a policy verdict. Nothing socket-derived
+// may be a gap or an overclaim under it — an unmediated surface is not a failure.
+const MEDIATION_OFF = "socket-mediation-disabled";
+const UNMEDIATED_REASON =
+  "linux.af_unix_mediation is off — socket grants are not enforced, so nothing observed here reads as policy";
+const socketMediation = (cs) => cs.linux?.af_unix_mediation ?? "off";
+
 // Findings nono has nothing to declare for by design — it mediates by policy and
 // never swaps a namespace or a rootfs. Excluded from the diff entirely: these can
 // never be gaps, however reachable they are.
@@ -50,6 +73,18 @@ function coversPath(unit, path) {
   return g === p || (unit.type !== "file" && p.startsWith(g === "/" ? "/" : `${g}/`));
 }
 
+// A socket grant is a file, a directory's *direct children* only, or a whole subtree —
+// nono keeps those apart, so a socket one level deeper than a `_dir` grant is genuinely
+// undeclared and must fall out as a gap rather than be swallowed by the directory.
+function coversSocket(unit, path) {
+  const g = trimSlash(unit.path);
+  const p = trimSlash(path);
+  if (unit.scope === "file") return g === p;
+  const prefix = g === "/" ? "/" : `${g}/`;
+  if (!p.startsWith(prefix)) return false;
+  return unit.scope === "dir-subtree" || !p.slice(prefix.length).includes("/");
+}
+
 // A leading dot is nono's suffix wildcard (`.githubusercontent.com` covers
 // `raw.githubusercontent.com` and the bare apex); anything else is exact.
 const coversDomain = (unit, host) =>
@@ -60,6 +95,7 @@ const coversDomain = (unit, host) =>
 // One matcher per declared-unit kind: does this observed value satisfy the unit.
 const COVERS = {
   path: coversPath,
+  socket: coversSocket,
   domain: coversDomain,
   port: (unit, port) => unit.port === port,
   any: () => true,
@@ -94,6 +130,26 @@ function declaredUnits(cs, home) {
       });
     }
   }
+  const mediated = socketMediation(cs) === "pathname";
+  for (const [field, [scope, mode]] of Object.entries(SOCKET_GRANTS)) {
+    for (const path of cs.filesystem?.[field] ?? []) {
+      push(`filesystem.${field}:${path}`, {
+        category: "filesystem",
+        kind: "socket",
+        scope,
+        mode,
+        declaredPath: path,
+        path: expandHome(path, home),
+        declares: SOCKET_FINDING,
+        // Unmediated, the grant is unenforced: unattested, carrying the modifier and
+        // the reason, rather than an overclaim the profile never had a chance to keep.
+        ...(mediated
+          ? { findingType: SOCKET_FINDING }
+          : { modifier: MEDIATION_OFF, reason: UNMEDIATED_REASON }),
+      });
+    }
+  }
+
   // ponytail: filesystem.deny declares *un*reachability, not a grant. A denied
   // path that turns up reachable already falls out as a gap, which is the
   // security-relevant verdict; give deny its own class only if that stops holding.
@@ -169,6 +225,7 @@ export function attest({ profile, capabilitySet, sandbox, baseline, home }) {
   }
 
   const units = declaredUnits(capabilitySet, home);
+  const mediation = socketMediation(capabilitySet);
 
   const verdicts = units.map((u) => {
     if (!u.findingType) return { ...u, class: "unattested" };
@@ -191,7 +248,11 @@ export function attest({ profile, capabilitySet, sandbox, baseline, home }) {
   // its own list rather than pooled with the declared-side verdicts. An inverted
   // unit declares un-reachability, so it never suppresses a gap.
   const gaps = [];
-  for (const findingType of [...Object.values(FS_FINDING), EGRESS_FINDING]) {
+  const gapTypes = [...Object.values(FS_FINDING), EGRESS_FINDING];
+  // Sockets only join the gap pass when mediation is on. Off, a reachable socket is
+  // not a policy failure — it is listed below carrying the modifier instead.
+  if (mediation === "pathname") gapTypes.push(SOCKET_FINDING);
+  for (const findingType of gapTypes) {
     for (const value of observed(sandbox, findingType)) {
       const declared = units.some(
         (u) => u.declares === findingType && u.polarity !== "absent" && covers(u, value),
@@ -213,6 +274,20 @@ export function attest({ profile, capabilitySet, sandbox, baseline, home }) {
     profile: { id: profile.id, version: profile.version, manifestVersion: capabilitySet.version },
     verdicts,
     gaps,
+    // The reading modifiers, on the attestation itself so an unmediated socket surface
+    // is visible without opening the profile.
+    modifiers: { socketMediation: mediation },
+    // Sockets observed while unmediated: reported, never as gaps.
+    unmediated:
+      mediation === "pathname"
+        ? []
+        : observed(sandbox, SOCKET_FINDING).map((path) => ({
+            class: "unattested",
+            findingType: SOCKET_FINDING,
+            path,
+            modifier: MEDIATION_OFF,
+            reason: UNMEDIATED_REASON,
+          })),
     excluded: UNDECLARABLE.filter((ft) => finding(sandbox, ft) !== undefined),
     coverage: {
       declared: units.length,

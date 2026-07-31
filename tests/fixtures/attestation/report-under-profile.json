@@ -52,6 +52,17 @@
       "value": [8080]
     },
     {
+      "findingType": "unix_socket_detection",
+      "task": "baseline_socket_task",
+      "description": "Unix sockets",
+      "value": [
+        "/run/user/1000/bus",
+        "/run/user/1000/nono/agent.sock",
+        "/run/user/1000/nono/deep/nested.sock",
+        "/run/docker.sock"
+      ]
+    },
+    {
       "findingType": "mounted_volumes_detections",
       "task": "baseline_mount_task",
       "description": "Mounted volumes",

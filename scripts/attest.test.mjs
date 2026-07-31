@@ -153,3 +153,71 @@ test("a verdict that cannot name its claim is refused", () => {
     /profile\.id and profile\.version are required/,
   );
 });
+
+// Socket grants, read against `linux.af_unix_mediation`. Mediation on: ordinary
+// per-grant verdicts. Mediation off: the grants are not enforced at all, so every
+// socket-derived result carries the modifier instead of reading as a policy failure.
+const sockets = (fixture) => attest({ ...INPUT, capabilitySet: load(fixture) });
+const mediated = sockets("capability-set-sockets");
+const unmediated = sockets("capability-set-sockets-unmediated");
+const socketGaps = (r) => r.gaps.filter((g) => g.findingType === "unix_socket_detection");
+
+const SOCKET_EXPECTED = {
+  // declared and observed under the profile
+  "filesystem.unix_socket:/run/user/1000/bus": "match",
+  // declared, and absent from the baseline too — nothing was there to reach
+  "filesystem.unix_socket_bind:/run/user/1000/gpg-agent.sock": "unprovable",
+  // a directory grant covers its direct children
+  "filesystem.unix_socket_dir:/run/user/1000/nono": "match",
+  // declared, not observed, but the baseline reached a socket in the subtree
+  "filesystem.unix_socket_subtree_bind:/run/tmux-1000": "overclaim",
+};
+
+for (const [id, cls] of Object.entries(SOCKET_EXPECTED)) {
+  test(`mediated ${id} -> ${cls}`, () =>
+    assert.equal(mediated.verdicts.find((v) => v.id === id)?.class, cls));
+}
+
+test("a socket nothing declares is a gap, and a directory grant does not cover deeper paths", () => {
+  assert.deepEqual(socketGaps(mediated), [
+    // one level below the `_dir` grant, which is direct-children only
+    { class: "gap", findingType: "unix_socket_detection", path: "/run/user/1000/nono/deep/nested.sock" },
+    { class: "gap", findingType: "unix_socket_detection", path: "/run/docker.sock" },
+  ]);
+});
+
+test("mediation off: no socket result is a gap or an overclaim", () => {
+  assert.deepEqual(socketGaps(unmediated), []);
+  const socketVerdicts = unmediated.verdicts.filter((v) => v.declares === "unix_socket_detection");
+  assert.equal(socketVerdicts.length, Object.keys(SOCKET_EXPECTED).length);
+  for (const v of socketVerdicts) {
+    assert.equal(v.class, "unattested");
+    assert.equal(v.modifier, "socket-mediation-disabled");
+    assert.match(v.reason, /af_unix_mediation is off/);
+  }
+});
+
+test("mediation off: sockets observed anyway are reported carrying the modifier", () => {
+  assert.deepEqual(
+    unmediated.unmediated.map((u) => [u.path, u.class, u.modifier]),
+    [
+      ["/run/user/1000/bus", "unattested", "socket-mediation-disabled"],
+      ["/run/user/1000/nono/agent.sock", "unattested", "socket-mediation-disabled"],
+      ["/run/user/1000/nono/deep/nested.sock", "unattested", "socket-mediation-disabled"],
+      ["/run/docker.sock", "unattested", "socket-mediation-disabled"],
+    ],
+  );
+  assert.deepEqual(mediated.unmediated, []);
+});
+
+test("the modifier is on the attestation, so the profile need not be opened to see it", () => {
+  assert.deepEqual(unmediated.modifiers, { socketMediation: "off" });
+  assert.deepEqual(mediated.modifiers, { socketMediation: "pathname" });
+  // absent means off: mediation is opt-in
+  assert.deepEqual(result.modifiers, { socketMediation: "off" });
+});
+
+test("unenforced socket grants count as declared-but-unattested, lowering coverage", () => {
+  assert.deepEqual(unmediated.coverage, { declared: 4, attested: 0, unattested: 4, attestedFraction: 0 });
+  assert.deepEqual(mediated.coverage, { declared: 4, attested: 4, unattested: 0, attestedFraction: 1 });
+});

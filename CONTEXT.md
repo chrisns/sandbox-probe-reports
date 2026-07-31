@@ -211,6 +211,15 @@ declared units over total declared units. "No drift" over a 30%-attestable
 profile means something very different from the same words over a 95%-attestable
 one, so the verdicts are never published without it.
 
+### Modifier (attestation)
+A profile setting that changes how results are *read* rather than being a grant
+in its own right, carried on the attestation so a reader never has to open the
+profile to interpret the verdicts. The first is **socket mediation**
+(`linux.af_unix_mediation`): it is opt-in, so absent means off, and with it off
+the pathname AF_UNIX grants are not enforced at all. Every socket-derived result
+then carries the modifier and is **unattested** — never a gap and never an
+overclaim, because an unmediated socket surface is not a policy failure.
+
 ### Undeclarable finding
 A finding nono has nothing to declare for by design — mount topology, hostname
 and UID/GID context, because it mediates by policy and never swaps a namespace or
