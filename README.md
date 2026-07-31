@@ -282,6 +282,33 @@ practice. That is not circular in the way a bare container run is, where
 every route into the sandbox exists only because this repository chose to
 open it.
 
+### Adding a sandbox row
+
+Two things a new runtime needs before it can join the matrix.
+
+**Somebody else must have made the configuration decision** — an agent vendor
+shipping its own sandbox, or a declared, versioned policy profile. A raw
+runtime whose every sharing decision comes from `run-probe-in-sandbox.sh` is
+measuring this repository, not the vendor, and no choice of flags fixes that.
+
+**Every flag you pass must carry a declared reason.** Add the runtime and its
+flags to the declaration in
+[`tests/vendor-default-flags.test.mjs`](tests/vendor-default-flags.test.mjs),
+one reason per flag, from exactly three:
+
+| Reason | Means |
+| --- | --- |
+| `vendor-default` | reproduces what the tool does with no flags at all; it is written out only because the invocation shape demands it explicitly |
+| `minimum-to-run` | without it the tool will not start, or the probe cannot run and emit its report — nono's filesystem grants and srt's settings file are this |
+| `output-only` | affects logging or verbosity and never the security boundary — `--quiet`, `--silent` |
+
+Anything needing a fourth reason is a narrowing this project invented, and the
+row would measure our configuration rather than the vendor's posture. The guard
+runs on every push, reads the launcher as its source of truth, and fails naming
+the runtime and the flag — so a flag added, changed or removed there without
+updating the declaration fails too. This exact class of bug was found by hand
+five separate times before the guard existed.
+
 ## What runs the comparison
 
 Everything here compares reports produced by
