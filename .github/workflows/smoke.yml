@@ -1,0 +1,49 @@
+name: smoke
+
+# Proves the boundary with sandbox-probe on every push, including from forks:
+# no agent CLI, no API key, no model access, no sandbox runtime.
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  smoke:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      # The pin exists so Dependabot's gomod ecosystem raises a PR when the
+      # probe releases. This repo imports no probe package — it runs the
+      # binary — so a bare `require` is dropped by tidy as unused and that
+      # coverage dies silently. The `tool` directive is what keeps it. This
+      # step is what notices if it ever stops working.
+      - name: probe pin survives go mod tidy
+        run: |
+          go mod tidy
+          git diff --exit-code go.mod go.sum
+          grep -qx 'tool github.com/controlplaneio/sandbox-probe' go.mod
+
+      - name: build the probe from the pinned version
+        run: go build -o bin/sandbox-probe github.com/controlplaneio/sandbox-probe
+
+      # Reads list-targets across the repo boundary. A registry schema change
+      # in the probe that the seeder cannot parse fails here, in minutes,
+      # rather than in the next weekly matrix run.
+      - name: seed decoys from the probe's target registry
+        run: scripts/seed-decoys.sh bin/sandbox-probe
+
+      - name: baseline scan
+        run: bin/sandbox-probe scan --fast --output_path report.json
+
+      - name: report parses and carries an expected finding type
+        run: |
+          jq -e . report.json > /dev/null
+          jq -e 'any(.findings[]; .findingType == "sensitive_readable_paths")' report.json
