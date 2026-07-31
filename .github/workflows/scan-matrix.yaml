@@ -158,8 +158,9 @@ jobs:
       # a credential is a provable result, not "n/a". Runs identically here for the
       # direct baseline AND every harness below — parity is what makes the diff mean
       # "blocked" rather than "absent". Soft: never overwrites an existing file.
-      - if: runner.os != 'Windows'
-        name: seed decoys (baseline + sandbox parity)
+      # Windows included: it used to be skipped because bash could only plant files,
+      # and that is where the named-pipe catalogue applies (probe ADR 0002).
+      - name: seed decoys (baseline + sandbox parity)
         shell: bash
         run: ./scripts/seed-decoys.sh "$PROBE"
 
@@ -359,6 +360,15 @@ jobs:
           RUNTIME: ${{ matrix.runtime }}
         run: ./scripts/run-probe-in-sandbox.sh
 
+      # Remove what the seed step planted, on every row, INCLUDING when the scan
+      # step above failed or timed out — `always()`. A process decoy and a Windows
+      # pipe server are live artifacts, so a reused or self-hosted runner would
+      # otherwise accumulate them. Removes only recorded/decoy-content artifacts.
+      - name: remove decoys (even if the scan failed)
+        if: always()
+        shell: bash
+        run: ./scripts/seed-decoys.sh --cleanup "$PROBE"
+
       # ── assert confinement engaged (any row that declares `expect`) ────────────
       # `expect` is a list of accepted sandbox_detection values; the row passes if the probe emitted
       # any one of them. Rows also accept mechanism values (no-new-privs / seccomp-filter / landlock)
@@ -475,6 +485,14 @@ jobs:
         env:
           OUT: site/attestation.json
         run: WORK="$RUNNER_TEMP/attest" ./scripts/attest-profile.sh
+
+      # attest-profile.sh seeds its own baseline through the same script, so it
+      # leaves the same live artifacts behind — cleaned up here for the same
+      # reason as in the scan rows, and on the same failed-run terms.
+      - name: remove decoys (even if the attestation failed)
+        if: always()
+        shell: bash
+        run: ./scripts/seed-decoys.sh --cleanup "$PROBE"
 
       - name: summary
         if: always()
