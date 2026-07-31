@@ -24,6 +24,18 @@ jobs:
           node-version: 22
       - run: node --test
 
+  # Its own job on purpose: the attestation diff is a pure function over
+  # checked-in documents, so it must not wait on — or fail with — the probe
+  # build, the seeder or a scan.
+  attest:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v6
+        with: { node-version: "22" }
+      - name: drift classification is what the fixtures say it is
+        run: node --test 'scripts/**/*.test.mjs'
+
   smoke:
     runs-on: ubuntu-latest
     steps:

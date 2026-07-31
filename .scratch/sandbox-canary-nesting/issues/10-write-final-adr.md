@@ -1,5 +1,5 @@
 Type: task
-Status: open
+Status: resolved
 
 Blocked by: 07, 08, 09
 
@@ -18,4 +18,14 @@ sandboxed run can *reach* it).
 
 ## Answer
 
-(pending — terminal ticket)
+**Landed** as
+[`docs/adr/0003-canary-nesting-and-the-comparability-criterion.md`](../../../docs/adr/0003-canary-nesting-and-the-comparability-criterion.md),
+with the per-runtime, flag-audit and agent-harness findings landed alongside it
+as [`docs/nesting-evidence.md`](../../../docs/nesting-evidence.md) — so no
+`research/*` branch is needed to follow any verdict on this map. The ADR
+references the seed-ipc-targets ADR (ADR 0002, which stayed with the probe at
+the split); the matching one-line back-reference in that ADR is a follow-up in
+the probe repository.
+
+Descoped from this ticket: `docs/reporting-site-plan.md` is updated by the
+matrix-shape tickets that actually remove the rows, not here.

@@ -106,6 +106,14 @@ a smaller, related check.
 
 **All 10 tickets ticket 08 was blocked on (01–06, 11–14) now resolved.** Net result across the four agent-harness tickets: zero script changes needed — three were already correctly nested for three different reasons, one (gemini) tests a real, narrower vendor boundary that shouldn't be widened. [Ticket 08](issues/08-consolidate-nesting-design.md) is fully unblocked and now scoped entirely to the original 5 generic runtimes (docker/podman/bwrap/nspawn/gvisor) plus the small firejail/nono network-flag fix.
 
+- [Final ADR](issues/10-write-final-adr.md) — **landed on the main line**:
+  [ADR 0003](../../docs/adr/0003-canary-nesting-and-the-comparability-criterion.md)
+  records the canary model, the comparability criterion and what it admits or
+  excludes; [`docs/nesting-evidence.md`](../../docs/nesting-evidence.md) carries
+  every per-runtime finding, the flag audit and the four agent-harness
+  verifications, with the gaps each one left. Reading either needs no
+  `research/*` branch.
+
 ## Not yet specified
 
 (none — the agent-harness question graduated into tickets 07/11–14, all resolved)
