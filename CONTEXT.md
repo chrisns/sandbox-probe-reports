@@ -196,6 +196,15 @@ Every declared grant and every observed finding resolves to exactly one class:
 | **Unprovable** | Declared, not observed, and not reachable in the baseline either. Nothing was there to reach, so this is not an overclaim — the ⬜ n/a cell state of attestation, and why a seeded baseline is an input. |
 | **Unattested** | Declared, but nothing here observes the category. Reported explicitly with the reason, never folded into match. |
 
+### Inverted declaration
+A declaration of *un*-reachability rather than a grant — a declared network block
+(`network.mode: blocked`). Its polarity is reversed: it is a **match** when the
+capability is absent under the profile and present in the baseline, **unprovable**
+when the baseline had nothing either, and a **gap** when it is still observed —
+the one case a gap attaches to a declared unit, because what was declared is the
+absence. The destinations reached under it are gaps in their own right: a block
+declares no destination, so nothing suppresses them.
+
 ### Coverage (attestation)
 The fraction of the declared surface that was attestable at all: attested
 declared units over total declared units. "No drift" over a 30%-attestable

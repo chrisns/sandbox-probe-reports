@@ -12,11 +12,11 @@
   },
   "network": {
     "mode": "proxy",
-    "allow_domains": ["api.openai.com", ".githubusercontent.com"],
+    "allow_domains": ["api.openai.com", ".githubusercontent.com", "registry.npmjs.org"],
     "endpoints": [
       { "host": "api.github.com:443", "rules": [{ "method": "GET", "path": "/repos/**" }] }
     ],
-    "ports": { "localhost": [8080] },
+    "ports": { "localhost": [8080], "listen": [9229] },
     "dns": true
   },
   "credentials": [

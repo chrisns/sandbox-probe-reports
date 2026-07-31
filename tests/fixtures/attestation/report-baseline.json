@@ -27,6 +27,29 @@
       "value": ["/tmp/workspace", "/var/tmp"]
     },
     {
+      "findingType": "external_host_dns_resolution",
+      "task": "baseline_network_scanner",
+      "description": "External host DNS resolution",
+      "value": ["140.82.121.6", "104.18.32.47"]
+    },
+    {
+      "findingType": "external_host_connectivity",
+      "task": "baseline_network_scanner",
+      "description": "External host connectivity",
+      "value": [
+        "api.openai.com",
+        "raw.githubusercontent.com",
+        "api.github.com",
+        "telemetry.example.net"
+      ]
+    },
+    {
+      "findingType": "tcp_ports_open",
+      "task": "baseline_network_scanner",
+      "description": "Open TCP ports",
+      "value": [8080, 9229, 5432]
+    },
+    {
       "findingType": "mounted_volumes_detections",
       "task": "baseline_mount_task",
       "description": "Mounted volumes",
