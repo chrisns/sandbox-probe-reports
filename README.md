@@ -103,15 +103,33 @@ in `sandbox-probe`):
 - ✅ `go.mod` — the pinned probe dependency
 - ✅ `scripts/seed-decoys.sh` — parent-side canary seeding
 - ✅ `.github/workflows/smoke.yml` — the boundary smoke job
-- ⏳ `.github/workflows/scan-matrix.yaml` — the per-harness × OS scan matrix
-- ⏳ `scripts/run-probe-in-sandbox.sh` + the per-agent stub runners
-- ⏳ `tests/*.sh` — the baseline/sandbox pair scripts
-- ⏳ `site/` — the client-side reporting page
+- ✅ `.github/workflows/scan-matrix.yaml` — the per-harness × OS scan matrix
+- ✅ `.github/workflows/scan-gemini.yaml` — the standalone Gemini sandbox-image scan
+- ✅ `scripts/run-probe-in-sandbox.sh` + the per-agent stub runners, the shared
+  `stub-common.sh` plumbing, `mock-agent-api.mjs`, and the agent run scripts
+- ✅ `tests/agent-driven/*.sh` — the baseline/sandbox pair scripts
+- ✅ `reports/*.json`, `trajectories/*.json` — the stored fixtures
+- ⏳ `site/` — the client-side reporting page, and the matrix's aggregate/publish job
 - ⏳ `docs/reporting-site-plan.md` and the comparison-methodology ADRs
 
 **Staying** in `sandbox-probe`: the Go binary (`cmd/`, `pkg/`, `main.go`), its
 tests, and `list-targets` — the probe's own registry of what it checks, which
 belongs next to the code it describes so the seeder cannot drift from it.
+Also staying: `tests/fingerprint/*.sh` and the minimal `run-bwrap.sh` /
+`run-docker.sh` / `run-podman.sh` launchers they invoke. Those assert that the
+probe's own `sandbox_detection` identifies a runtime — a probe capability, not
+a comparison. That is the line between `tests/fingerprint` and the
+`tests/agent-driven` scripts that came here.
+
+## Running the matrix
+
+`scan-matrix.yaml` keeps its weekly cron, its `workflow_dispatch`, and its
+`matrix/**` push trigger. Its `build` job compiles the probe **from the module
+version pinned in `go.mod`** — `go build github.com/controlplaneio/sandbox-probe`
+— once per platform, with darwin built on macOS and windows on Windows, and
+shares the binaries to the scan jobs as artifacts. Nothing but that binary
+comes from outside this repository: every script, stub and config the scan rows
+invoke resolves under `scripts/` here.
 
 **History does not migrate.** Files arrive as a fresh commit; the decision
 record lives in the ADRs and wayfinder maps rather than in `git log`.
