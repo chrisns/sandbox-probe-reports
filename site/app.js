@@ -32,9 +32,22 @@ const CONTEXT_FT = new Set([
   "environment_detection", "proxy_detection",
 ]);
 
+// sandbox_detection carries two kinds of claim (CONTEXT.md, "Enforcement badge vs
+// mechanism"): the wrapper name — an inference — and kernel-attested mechanisms,
+// emitted as sibling findings. Both are context signals: neither is a capability
+// category, so neither moves the 0–8 exposure count.
+const MECHANISMS = new Set([
+  "user-namespace", "landlock", "seccomp-filter", "seccomp-notify", "seccomp-strict", "no-new-privs",
+]);
+
 const find = (r, ft) => r.report.findings.find((f) => f.findingType === ft);
 const kernelOf = (r) => (find(r, "environment_detection")?.value?.kernelRelease) || "?";
-const sandboxOf = (r) => (find(r, "sandbox_detection")?.value) || "none";
+const sandboxValues = (r) =>
+  r.report.findings.filter((f) => f.findingType === "sandbox_detection")
+    .map((f) => f.value).filter((v) => typeof v === "string" && v !== "");
+// the badge is the wrapper name; a run that only proves mechanisms has no badge.
+const sandboxOf = (r) => sandboxValues(r).find((v) => !MECHANISMS.has(v)) || "none";
+const mechanismsOf = (r) => sandboxValues(r).filter((v) => MECHANISMS.has(v));
 const isRoot = (r) => (find(r, "user_context_detection")?.value?.euid) === 0;
 function harnessVersion(r) {
   const skip = new Set(["os", "harness", "sandbox", "runner", "mode"]);
@@ -120,7 +133,7 @@ function build(rows) {
       const pt = {
         fp, ts: r.runTimestamp, harnessVersion: harnessVersion(r),
         probe: r.report.probeBinary.commit, kernel: kernelOf(r), os: r.os,
-        sandbox: sandboxOf(r), root: isRoot(r), row: r,
+        sandbox: sandboxOf(r), mechanisms: mechanismsOf(r), root: isRoot(r), row: r,
         states: cellStates(r, base), hasBaseline: !!base, baselineRow: base,
       };
       if (!points.has(fp)) points.set(fp, pt);
@@ -186,7 +199,8 @@ function renderMatrix() {
     const pts = MODEL[id], p = pts.at(-1), prev = pts.length > 1 ? pts.at(-2) : null;
     const baseline = id.endsWith("/direct");
     h += `<tr class="${baseline ? "baseline-row" : ""}"><td class="id">${id}${baseline ? ' <span class="tag">baseline</span>' : ""}</td>`;
-    h += `<td>${baseline ? "—" : `<span class="tag enf">${p.sandbox}</span>${p.root ? ' <span class="tag root">root</span>' : ""}`}</td>`;
+    const mech = p.mechanisms.map((m) => ` <span class="tag mech" title="kernel-attested mechanism">${m}</span>`).join("");
+    h += `<td>${baseline ? "—" : `<span class="tag enf">${p.sandbox}</span>${mech}${p.root ? ' <span class="tag root">root</span>' : ""}`}</td>`;
     for (const c of CATEGORIES) {
       const st = p.states[c.key] || "na";
       const changed = prev && !baseline && prev.states[c.key] !== st && (st === "leaked" || st === "blocked");

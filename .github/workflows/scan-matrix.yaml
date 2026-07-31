@@ -70,7 +70,9 @@ jobs:
           - { os: windows, runner: windows-latest, arch: windows-amd64, ext: ".exe", family: direct, harness: direct }
           # claude — real binary, model stubbed; as-is vs its own sandbox (bwrap on Linux, Seatbelt on macOS).
           - { os: linux, runner: ubuntu-latest, arch: linux-amd64,  ext: "", family: claude, harness: claude,         sandbox: "off" }
-          - { os: linux, runner: ubuntu-latest, arch: linux-amd64,  ext: "", family: claude, harness: claude-sandbox, sandbox: "on", expect: '["bubblewrap","no-new-privs","seccomp-filter","landlock"]' }
+          # spec #6: the wrapper now resolves here (it read `unknown` before), so this row asserts the
+          # name rather than falling back to accepting the kernel mechanisms it adds.
+          - { os: linux, runner: ubuntu-latest, arch: linux-amd64,  ext: "", family: claude, harness: claude-sandbox, sandbox: "on", expect: '["bubblewrap"]' }
           - { os: macos, runner: macos-latest,  arch: darwin-arm64, ext: "", family: claude, harness: claude,         sandbox: "off" }
           - { os: macos, runner: macos-latest,  arch: darwin-arm64, ext: "", family: claude, harness: claude-sandbox, sandbox: "on", expect: '["seatbelt"]' }
           # codex — real binary, model stubbed; as-is vs its workspace-write sandbox (bwrap on Linux, Seatbelt on macOS).
@@ -103,7 +105,8 @@ jobs:
           # pyinstaller tool-bundling per run) and only re-detects docker, so best-effort.
           - { os: linux, runner: ubuntu-latest, arch: linux-amd64,  ext: "", family: trae,     harness: trae-docker, sandbox: "docker", expect: '["docker"]', optional: true }
           # sandbox runtimes — no agent, no model; each a distinct keyless OS sandbox the probe fingerprints.
-          - { os: linux, runner: ubuntu-latest, arch: linux-amd64,  ext: "", family: sandbox, harness: srt,      runtime: srt,      expect: '["bubblewrap","no-new-privs","seccomp-filter","landlock"]' }
+          # spec #6: as for claude-sandbox — same bwrap engine, wrapper name now resolves.
+          - { os: linux, runner: ubuntu-latest, arch: linux-amd64,  ext: "", family: sandbox, harness: srt,      runtime: srt,      expect: '["bubblewrap"]' }
           - { os: macos, runner: macos-latest,  arch: darwin-arm64, ext: "", family: sandbox, harness: srt,      runtime: srt,      expect: '["seatbelt"]' }
           - { os: linux, runner: ubuntu-latest, arch: linux-amd64,  ext: "", family: sandbox, harness: firejail, runtime: firejail, expect: '["firejail"]' }
           - { os: linux, runner: ubuntu-latest, arch: linux-amd64,  ext: "", family: sandbox, harness: nono,     runtime: nono,     expect: '["landlock","seccomp-notify","seccomp-filter","no-new-privs"]' }
@@ -372,8 +375,17 @@ jobs:
         run: ./scripts/run-probe-in-sandbox.sh
 
       # ── assert confinement engaged (any row that declares `expect`) ────────────
-      # Linux can't always fingerprint a bwrap wrapper, so bwrap-based rows accept the kernel
-      # enforcement it adds (no-new-privs / seccomp-filter) — absent from the unconfined baseline.
+      # `expect` is a list of accepted sandbox_detection values; the row passes if the probe emitted
+      # any one of them. Rows also accept mechanism values (no-new-privs / seccomp-filter / landlock)
+      # where the wrapper name could not always be fingerprinted; the two rows spec #6 corrected
+      # (claude-sandbox and srt on Linux) now assert the wrapper name itself.
+      #
+      # FINDING (spec #6 AC: report, do not quietly adjust): nono on Linux is a third harness whose
+      # badge may move. Its setup relaxes kernel.apparmor_restrict_unprivileged_userns, i.e. it runs
+      # in a user namespace, and no nono-specific wrapper detector exists — so the broadened uid_map
+      # rule can now label it `bubblewrap` where it previously read `unknown`. That is the mislabel
+      # the spec accepts, not a miss; this row's mechanism-only `expect` still passes either way, so
+      # it is left as-is pending a scheduled run that shows what nono actually reports.
       - if: matrix.expect != ''
         name: assert sandbox engaged
         shell: bash

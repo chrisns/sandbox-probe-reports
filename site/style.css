@@ -105,6 +105,8 @@ td.exp { font-weight: 700; color: var(--cp-text-heading); }
   vertical-align: middle;
 }
 .tag.enf { background: var(--cp-pill-bg); color: var(--cp-neutral-4); }
+/* kernel-attested mechanism beside the inferred wrapper name — context, never a category */
+.tag.mech { background: transparent; color: var(--cp-text-muted); border: 1px solid var(--cp-border); }
 .tag.root { background: var(--status-leaked-bg); color: var(--status-leaked); }
 .up { color: var(--status-leaked); font-size: 10px; }
 .down { color: var(--status-blocked); font-size: 10px; }
