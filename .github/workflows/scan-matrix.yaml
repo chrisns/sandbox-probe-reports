@@ -36,7 +36,7 @@ jobs:
           path: sandbox-probe${{ matrix.ext }}
           key: probe-${{ matrix.goos }}-${{ matrix.goarch }}-${{ hashFiles('go.mod', 'go.sum') }}
       - if: steps.cache.outputs.cache-hit != 'true'
-        uses: actions/setup-go@v6
+        uses: actions/setup-go@v7
         with: { go-version-file: go.mod }
       # Built from the module pinned in go.mod — not from a sibling checkout. darwin is built
       # on macos-latest and windows on windows-latest so cgo-free cross-compilation bugs in the
