@@ -21,6 +21,7 @@ const FT2CAT = {
   tcp_ports_open: "local_services",
   udp_ports_open: "local_services",
   unix_socket_detection: "ipc_sockets",
+  named_pipe_detection: "ipc_sockets",
   process_detection: "process_visibility",
   parent_process_detection: "process_visibility",
   mounted_volumes_detections: "host_mounts",
