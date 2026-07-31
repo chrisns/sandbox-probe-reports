@@ -114,6 +114,24 @@ td.exp { font-weight: 700; color: var(--cp-text-heading); }
 .k-blocked { color: var(--status-blocked); font-weight: 600; }
 .k-na { color: var(--cp-neutral-6); font-weight: 600; }
 
+/* attestation view — declared vs actual, its own page (site/attestation.html).
+   Drift classes reuse the status semantics: a gap is the security-relevant
+   direction, so it gets the leaked colour and sits in its own section. */
+.drift { font-weight: 600; }
+.drift.match { color: var(--status-blocked); background: var(--status-blocked-bg); }
+.drift.overclaim { color: var(--status-unprovable); background: var(--status-unprovable-bg); }
+.drift.unprovable, .drift.unattested { color: var(--cp-neutral-6); background: var(--cp-pill-bg); }
+.gap-list { list-style: none; padding: 0; margin: 0; }
+.gap-list li { padding: 4px 0; border-bottom: 1px solid var(--cp-neutral-8); font-size: 13px; }
+.badge.gap { background: var(--status-leaked-bg); color: var(--status-leaked); border: 1px solid var(--status-leaked-border); }
+.badge.unattested { background: var(--cp-pill-bg); color: var(--cp-neutral-6); }
+#gaps-section { border-left: 3px solid var(--status-leaked); }
+.tag.mod, .tag.caveat { background: var(--status-unprovable-bg); color: var(--status-unprovable); }
+td.note { text-align: left; color: var(--cp-text-muted); font-size: 12px; }
+.k-unprovable { color: var(--status-unprovable); font-weight: 600; }
+.hidden { display: none; }
+a { color: var(--cp-blue-text); }
+
 /* charts */
 .chart { width: 100%; height: 320px; }
 #chart-heatmap { height: 300px; }

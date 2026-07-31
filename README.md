@@ -255,6 +255,28 @@ own sandbox, or a declared, versioned policy profile — see the
 [`profile-attestation`](.scratch/profile-attestation/map.md) wayfinder map
 for the emerging declared-vs-actual variant of this idea.
 
+That criterion, what it admits and excludes, and how to decide whether a new
+row qualifies are recorded in
+[ADR 0003](docs/adr/0003-canary-nesting-and-the-comparability-criterion.md).
+The per-runtime evidence behind it — each retired runtime's real default
+sharing behaviour, the firejail/nono/srt flag audit and the four agent-harness
+verifications, with what was actually tested and on what — is
+[`docs/nesting-evidence.md`](docs/nesting-evidence.md).
+
+**Attestation (declared vs actual).** A separate comparison, kept out of the
+0–8 exposure scale: a declared profile's resolved grants diffed against what
+the probe observed under it, every grant landing in one drift class (match,
+overclaim, gap, unprovable, unattested) alongside the **coverage** that says how
+much of the declared surface was attestable at all. Which declared grant is
+observed by which finding, which categories nothing observes and are named
+unattested, which are excluded by design, and where nono's own published schema
+is stale, are in
+[`docs/attestation-mapping.md`](docs/attestation-mapping.md) — read it before
+extending either side. It is published as its own page (`site/attestation.html`)
+rather than a matrix column, rendering the checked-in `site/attestation.json`
+(`node scripts/build-attestation.mjs` regenerates it), so a verdict can be read
+without nono and without running a scan.
+
 ## What runs the comparison
 
 Everything here compares reports produced by
