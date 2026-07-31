@@ -2,6 +2,11 @@ name: scan-matrix
 
 on:
   workflow_dispatch:
+    inputs:
+      profile:
+        description: "nono registry profile to attest (<namespace>/<name>[@version])"
+        required: false
+        default: nolabs-ai/codex
   push:
     branches: ["matrix/**"]
   schedule:
@@ -386,13 +391,98 @@ jobs:
           path: ${{ env.REPORT }}
           if-no-files-found: ignore
 
+  # Declared-versus-actual (#27), not baseline-versus-sandbox: this produces an attestation for a
+  # declared nono registry profile, never a matrix row, and touches nothing in the 0–8 exposure
+  # scale. Only the OS-level policy half of the pack is attested — the pack's Codex plugin wiring is
+  # inert when the sandboxed command is the bare probe (docs/attestation-mapping.md).
+  #
+  # Its own job, and deliberately here rather than in the per-push smoke suite, because it INSTALLS
+  # A NONO REGISTRY PACK: that splices Codex plugin wiring into ~/.codex on the runner, on install,
+  # even under --dry-run. It is gated exactly like every other side-effecting job in this workflow
+  # (dispatch / matrix branch / weekly), and the removal is verified rather than assumed.
+  #
+  # PROFILE is an input, not a constant: dispatch this against any other registry profile and it
+  # attests that one with no code change.
+  attest:
+    name: attest (${{ inputs.profile || 'nolabs-ai/codex' }})
+    needs: build
+    runs-on: ubuntu-latest
+    env:
+      PROBE: ./sandbox-probe
+      PROFILE: ${{ inputs.profile || 'nolabs-ai/codex' }}
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/download-artifact@v7
+        with: { name: sandbox-probe-linux-amd64 }
+      - run: chmod +x sandbox-probe
+      - uses: actions/setup-node@v6
+        with: { node-version: "22" }
+      - name: install nono
+        shell: bash
+        run: |
+          curl -fsSL https://nono.sh/install.sh | sh
+          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+          # nono's seccomp-notify supervisor may need unprivileged user namespaces (gated on 24.04).
+          if [ "$(sysctl -n kernel.apparmor_restrict_unprivileged_userns 2>/dev/null || echo 0)" = "1" ]; then
+            sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
+          fi
+
+      # The one integration check the spec asks for, and the reason this job is gated: the failure
+      # mode is silent mutation of a real machine, so cleanup-after-a-crash is *exercised*, not
+      # asserted. NONO_PACK_FAIL_AFTER_INSTALL aborts the run in the window where the pack exists;
+      # the run must still fail AND still leave the agent configuration exactly as it found it.
+      # It runs before the real attestation so a broken cleanup is caught while nothing else has run.
+      - name: cleanup is verified even when the run fails part-way
+        shell: bash
+        env:
+          NONO_PACK_FAIL_AFTER_INSTALL: "1"
+          OUT: ${{ runner.temp }}/discarded-attestation.json
+        run: |
+          set +e
+          out="$(WORK="$RUNNER_TEMP/fault" ./scripts/attest-profile.sh 2>&1)"; status=$?
+          set -e
+          echo "$out"
+          [ "$status" -ne 0 ] || { echo "::error::fault injection did not fail the run"; exit 1; }
+          grep -q 'nono-pack: verified' <<<"$out" \
+            || { echo "::error::cleanup did not verify after a mid-run failure"; exit 1; }
+          if grep -q 'nono:' "$HOME/.codex/config.toml" 2>/dev/null; then
+            echo "::error::a nono fence block is still spliced into ~/.codex/config.toml"; exit 1
+          fi
+
+      # Immediately after the failed run above, with no reset in between: this is also the
+      # repeat-run check. It must succeed without assuming the pack install was idempotent or that
+      # the previous run left a clean state — nono_pack_install removes before it pulls.
+      - name: attest the profile
+        shell: bash
+        env:
+          OUT: site/attestation.json
+        run: WORK="$RUNNER_TEMP/attest" ./scripts/attest-profile.sh
+
+      - name: summary
+        if: always()
+        shell: bash
+        run: |
+          {
+            echo "### attestation — $PROFILE"
+            jq -r '"- profile: `\(.profile.id)@\(.profile.version)`",
+                   "- coverage: \(.coverage.attested)/\(.coverage.declared) declared units attestable",
+                   "- gaps (reachable, undeclared): \(.gaps | length)"' site/attestation.json || true
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - uses: actions/upload-artifact@v7
+        if: always()
+        with:
+          name: attestation
+          path: site/attestation.json
+          if-no-files-found: ignore
+
   # One aggregation job — collect every scan's report, append one immutable commit
   # to the data branch, rebuild the concatenated all-reports.json from the whole
   # history, and deploy the static site. `needs: scan` + `if: always()` so a partial
   # matrix still publishes what succeeded (no 30-way git-push race — one commit here).
   aggregate:
     name: aggregate & publish
-    needs: [build, scan]
+    needs: [build, scan, attest]
     if: always()
     runs-on: ubuntu-latest
     permissions:
@@ -411,6 +501,15 @@ jobs:
           pattern: report-*
           path: incoming
           merge-multiple: true
+      # The observed attestation replaces the checked-in fixture-built one, so the site's
+      # attestation view shows this run's verdict. Its own `source` field says which it is, so a
+      # missing artifact (attest job skipped or failed) just publishes the fixture document as
+      # before, labelled as such — never an observed run's verdict by mistake.
+      - uses: actions/download-artifact@v7
+        continue-on-error: true
+        with: { name: attestation, path: incoming-attestation }
+      - shell: bash
+        run: cp incoming-attestation/attestation.json site/attestation.json 2>/dev/null || true
       - name: append run to data branch + build site payload
         shell: bash
         env:
