@@ -10,6 +10,20 @@ permissions:
   contents: read
 
 jobs:
+  # The client-side logic tests for site/app.js, plus the vendor-default flag
+  # guard over scripts/run-probe-in-sandbox.sh — the guard reads the launcher,
+  # so it needs no sandbox runtime installed and fails in the pull request that
+  # adds an undeclared flag. No probe binary, no network, no agent CLI —
+  # independent of the smoke job below (tracked separately as #14).
+  node-tests:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - run: node --test
+
   # Its own job on purpose: the attestation diff is a pure function over
   # checked-in documents, so it must not wait on — or fail with — the probe
   # build, the seeder or a scan.

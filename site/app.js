@@ -21,6 +21,7 @@ const FT2CAT = {
   tcp_ports_open: "local_services",
   udp_ports_open: "local_services",
   unix_socket_detection: "ipc_sockets",
+  named_pipe_detection: "ipc_sockets",
   process_detection: "process_visibility",
   parent_process_detection: "process_visibility",
   mounted_volumes_detections: "host_mounts",
@@ -31,9 +32,22 @@ const CONTEXT_FT = new Set([
   "environment_detection", "proxy_detection",
 ]);
 
+// sandbox_detection carries two kinds of claim (CONTEXT.md, "Enforcement badge vs
+// mechanism"): the wrapper name — an inference — and kernel-attested mechanisms,
+// emitted as sibling findings. Both are context signals: neither is a capability
+// category, so neither moves the 0–8 exposure count.
+const MECHANISMS = new Set([
+  "user-namespace", "landlock", "seccomp-filter", "seccomp-notify", "seccomp-strict", "no-new-privs",
+]);
+
 const find = (r, ft) => r.report.findings.find((f) => f.findingType === ft);
 const kernelOf = (r) => (find(r, "environment_detection")?.value?.kernelRelease) || "?";
-const sandboxOf = (r) => (find(r, "sandbox_detection")?.value) || "none";
+const sandboxValues = (r) =>
+  r.report.findings.filter((f) => f.findingType === "sandbox_detection")
+    .map((f) => f.value).filter((v) => typeof v === "string" && v !== "");
+// the badge is the wrapper name; a run that only proves mechanisms has no badge.
+const sandboxOf = (r) => sandboxValues(r).find((v) => !MECHANISMS.has(v)) || "none";
+const mechanismsOf = (r) => sandboxValues(r).filter((v) => MECHANISMS.has(v));
 const isRoot = (r) => (find(r, "user_context_detection")?.value?.euid) === 0;
 function harnessVersion(r) {
   const skip = new Set(["os", "harness", "sandbox", "runner", "mode"]);
@@ -44,6 +58,20 @@ function harnessVersion(r) {
   return "";
 }
 const fingerprint = (r) => [harnessVersion(r), r.report.probeBinary.commit, kernelOf(r), r.os].join("|");
+
+// Mount entries come in two shapes: a plain path string (pre spec-7 probe), or
+// an object carrying source/target/fsType and the mount root (post spec-7
+// probe, ADR-0002's neighbour ticket #7 in sandbox-probe). Both must render
+// without error, so drill-down display/comparison goes through these two
+// normalizers rather than assuming either shape.
+function mountLabel(v) {
+  if (v == null || typeof v !== "object") return String(v);
+  return v.target || v.source || v.path || JSON.stringify(v);
+}
+function mountKey(v) {
+  if (v == null || typeof v !== "object") return String(v);
+  return [v.source, v.target, v.mountRoot, v.fsType].filter((x) => x != null).join("|") || JSON.stringify(v);
+}
 
 // A finding only signals a real capability if it carries something: a task can
 // run and find nothing, emitting the finding type with an empty value (e.g. DNS
@@ -94,9 +122,19 @@ function build(rows) {
     (byIdentity[id] ||= []).push(r);
   }
 
+  // Retirement (spec #5 / #30): an identity whose most recent run predates its
+  // OS's latest scan no longer receives runs, so it leaves the matrix and the
+  // charts rather than showing a stale row or a line that stops mid-axis. Read-
+  // time filter only — every historical report stays on the data branch. It is
+  // arrival's inverse: a first-time identity is in the latest scan, so it joins
+  // with no code change, and a departed one leaves the same way.
+  const latestScan = {};
+  for (const r of rows) if (r.runTimestamp > (latestScan[r.os] || "")) latestScan[r.os] = r.runTimestamp;
+
   const identities = {};
   for (const [id, list] of Object.entries(byIdentity)) {
     list.sort((a, b) => a.runTimestamp.localeCompare(b.runTimestamp));
+    if (list.at(-1).runTimestamp < latestScan[list[0].os]) continue;
     // collapse by fingerprint: one point per distinct fingerprint, latest run wins, first-seen ts.
     const points = new Map(); // fp -> point
     for (const r of list) {
@@ -105,8 +143,8 @@ function build(rows) {
       const pt = {
         fp, ts: r.runTimestamp, harnessVersion: harnessVersion(r),
         probe: r.report.probeBinary.commit, kernel: kernelOf(r), os: r.os,
-        sandbox: sandboxOf(r), root: isRoot(r), row: r,
-        states: cellStates(r, base), hasBaseline: !!base,
+        sandbox: sandboxOf(r), mechanisms: mechanismsOf(r), root: isRoot(r), row: r,
+        states: cellStates(r, base), hasBaseline: !!base, baselineRow: base,
       };
       if (!points.has(fp)) points.set(fp, pt);
       else { const p = points.get(fp); p.states = pt.states; p.row = r; } // latest wins, keep first ts
@@ -171,7 +209,8 @@ function renderMatrix() {
     const pts = MODEL[id], p = pts.at(-1), prev = pts.length > 1 ? pts.at(-2) : null;
     const baseline = id.endsWith("/direct");
     h += `<tr class="${baseline ? "baseline-row" : ""}"><td class="id">${id}${baseline ? ' <span class="tag">baseline</span>' : ""}</td>`;
-    h += `<td>${baseline ? "—" : `<span class="tag enf">${p.sandbox}</span>${p.root ? ' <span class="tag root">root</span>' : ""}`}</td>`;
+    const mech = p.mechanisms.map((m) => ` <span class="tag mech" title="kernel-attested mechanism">${m}</span>`).join("");
+    h += `<td>${baseline ? "—" : `<span class="tag enf">${p.sandbox}</span>${mech}${p.root ? ' <span class="tag root">root</span>' : ""}`}</td>`;
     for (const c of CATEGORIES) {
       const st = p.states[c.key] || "na";
       const changed = prev && !baseline && prev.states[c.key] !== st && (st === "leaked" || st === "blocked");
@@ -186,20 +225,46 @@ function renderMatrix() {
     td.addEventListener("click", () => drill(td.dataset.id, td.dataset.cat)));
 }
 
+function findingItems(row, fts) {
+  const items = [];
+  if (!row) return items;
+  for (const ft of fts) {
+    const f = find(row, ft);
+    if (f) items.push(...(Array.isArray(f.value) ? f.value : [f.value]));
+  }
+  return items;
+}
+
+// host_mounts drill-down: entry counts grew a lot once the enumerator started
+// reporting every mount root (spec #7), so the raw list leads with what the
+// sandbox exposes beyond the baseline — mounts also reachable in the baseline
+// are collapsed rather than deleted, since they're still real, just not new.
+function renderMountDrill(items, baselineRow, fts) {
+  if (!items.length) return `<p class="muted">No accessible items.</p>`;
+  const baseKeys = new Set(findingItems(baselineRow, fts).map(mountKey));
+  const unique = [], common = [];
+  for (const it of items) (baseKeys.has(mountKey(it)) ? common : unique).push(it);
+  const li = (v) => `<li>${mountLabel(v)}</li>`;
+  let h = "";
+  if (unique.length)
+    h += `<p class="mount-group-label">Unique to this sandbox (${unique.length})</p><ul>${unique.map(li).join("")}</ul>`;
+  if (common.length)
+    h += `<details class="mount-common"><summary>Also in baseline (${common.length})</summary><ul>${common.map(li).join("")}</ul></details>`;
+  return h;
+}
+
 function drill(id, catKey) {
   const p = MODEL[id].at(-1);
   const cat = CATEGORIES.find((c) => c.key === catKey);
   const fts = Object.entries(FT2CAT).filter(([, v]) => v === catKey).map(([k]) => k);
-  const items = [];
-  for (const ft of fts) {
-    const f = find(p.row, ft);
-    if (f) items.push(...(Array.isArray(f.value) ? f.value : [f.value]).map((v) => typeof v === "object" ? JSON.stringify(v) : v));
-  }
+  const items = findingItems(p.row, fts);
   document.getElementById("drill-title").textContent = `${id} · ${cat.label} · ${p.states[catKey]}`;
+  const body = catKey === "host_mounts"
+    ? renderMountDrill(items, p.baselineRow, fts)
+    : (items.length ? "<ul>" + items.map((i) => `<li>${typeof i === "object" ? JSON.stringify(i) : i}</li>`).join("") + "</ul>"
+        : `<p class="muted">No accessible items (${p.states[catKey]}).</p>`);
   document.getElementById("drill-body").innerHTML =
-    `<div class="fp">fingerprint: ${p.harnessVersion || "—"} · probe ${p.probe} · ${p.kernel}</div>` +
-    (items.length ? "<ul>" + items.map((i) => `<li>${i}</li>`).join("") + "</ul>"
-      : `<p class="muted">No accessible items (${p.states[catKey]}).</p>`);
+    `<div class="fp">fingerprint: ${p.harnessVersion || "—"} · probe ${p.probe} · ${p.kernel}</div>` + body;
   document.getElementById("drill").classList.remove("hidden");
 }
 

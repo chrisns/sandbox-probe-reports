@@ -49,7 +49,10 @@ All derivation client-side from `all-reports.json`:
 - [ ] Categorize findings into the 8 capability categories (+ Other for unmapped);
       Privileged uses absolute euid-0 rule.
 - [ ] **Matrix view** — identities × categories, 3-state cells, enforcement +
-      root badges, ▲/▼ change markers.
+      root badges, ▲/▼ change markers. The rows are the `direct` baseline, the
+      agent-driven harnesses, and the runtimes that restrict the seeded parent's
+      own filesystem by policy (srt, firejail, nono) — a row is only carried
+      where someone other than this repository decided the configuration.
 - [ ] **Drill-down** — cell → actual values (paths/hosts/ports).
 - [ ] **Flip-log** — chronological flips, each attributed to the moved fingerprint
       component.
@@ -62,5 +65,6 @@ All derivation client-side from `all-reports.json`:
 ## Extendability check (must stay true)
 
 - New harness → new row/line, automatic (identity from data).
+- Harness that stops receiving runs → row/line leaves the same way, automatic.
 - New finding type → mapped category, or **Other** (never dropped).
 - New target → add to probe registry; seeder picks it up via `list-targets`.

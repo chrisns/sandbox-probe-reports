@@ -70,7 +70,9 @@ jobs:
           - { os: windows, runner: windows-latest, arch: windows-amd64, ext: ".exe", family: direct, harness: direct }
           # claude — real binary, model stubbed; as-is vs its own sandbox (bwrap on Linux, Seatbelt on macOS).
           - { os: linux, runner: ubuntu-latest, arch: linux-amd64,  ext: "", family: claude, harness: claude,         sandbox: "off" }
-          - { os: linux, runner: ubuntu-latest, arch: linux-amd64,  ext: "", family: claude, harness: claude-sandbox, sandbox: "on", expect: '["bubblewrap","no-new-privs","seccomp-filter","landlock"]' }
+          # spec #6: the wrapper now resolves here (it read `unknown` before), so this row asserts the
+          # name rather than falling back to accepting the kernel mechanisms it adds.
+          - { os: linux, runner: ubuntu-latest, arch: linux-amd64,  ext: "", family: claude, harness: claude-sandbox, sandbox: "on", expect: '["bubblewrap"]' }
           - { os: macos, runner: macos-latest,  arch: darwin-arm64, ext: "", family: claude, harness: claude,         sandbox: "off" }
           - { os: macos, runner: macos-latest,  arch: darwin-arm64, ext: "", family: claude, harness: claude-sandbox, sandbox: "on", expect: '["seatbelt"]' }
           # codex — real binary, model stubbed; as-is vs its workspace-write sandbox (bwrap on Linux, Seatbelt on macOS).
@@ -102,17 +104,21 @@ jobs:
           # trae-docker — trae's own Docker execution mode (agent-driven container). Heavy (source clone +
           # pyinstaller tool-bundling per run) and only re-detects docker, so best-effort.
           - { os: linux, runner: ubuntu-latest, arch: linux-amd64,  ext: "", family: trae,     harness: trae-docker, sandbox: "docker", expect: '["docker"]', optional: true }
-          # sandbox runtimes — no agent, no model; each a distinct keyless OS sandbox the probe fingerprints.
-          - { os: linux, runner: ubuntu-latest, arch: linux-amd64,  ext: "", family: sandbox, harness: srt,      runtime: srt,      expect: '["bubblewrap","no-new-privs","seccomp-filter","landlock"]' }
+          # sandbox runtimes — no agent, no model; each restricts the seeded parent's own filesystem
+          # by policy, so the run is a genuine child of it. The rootfs-swapping runtimes (docker,
+          # podman, bwrap, nspawn, gvisor) are retired: they were never nested in the seeded parent,
+          # and any sharing flags this repo adds to nest them would be its own configuration choice
+          # rather than a vendor's. See the retirement note in README.md.
+          # spec #5.3 (#32): none of the three is launched with a restriction this repo invented —
+          # firejail gets --quiet and its own default profile, nono keeps only the grants it needs
+          # to start, srt keeps its deny-by-default settings widened for writes. Network egress is
+          # open on all three, as it is out of the box, so their rows read more exposed than before.
+          # spec #6: as for claude-sandbox — same bwrap engine, wrapper name now resolves.
+          - { os: linux, runner: ubuntu-latest, arch: linux-amd64,  ext: "", family: sandbox, harness: srt,      runtime: srt,      expect: '["bubblewrap"]' }
           - { os: macos, runner: macos-latest,  arch: darwin-arm64, ext: "", family: sandbox, harness: srt,      runtime: srt,      expect: '["seatbelt"]' }
           - { os: linux, runner: ubuntu-latest, arch: linux-amd64,  ext: "", family: sandbox, harness: firejail, runtime: firejail, expect: '["firejail"]' }
           - { os: linux, runner: ubuntu-latest, arch: linux-amd64,  ext: "", family: sandbox, harness: nono,     runtime: nono,     expect: '["landlock","seccomp-notify","seccomp-filter","no-new-privs"]' }
           - { os: macos, runner: macos-latest,  arch: darwin-arm64, ext: "", family: sandbox, harness: nono,     runtime: nono,     expect: '["seatbelt"]' }
-          - { os: linux, runner: ubuntu-latest, arch: linux-amd64,  ext: "", family: sandbox, harness: podman,   runtime: podman,   expect: '["podman"]' }
-          - { os: linux, runner: ubuntu-latest, arch: linux-amd64,  ext: "", family: sandbox, harness: docker,   runtime: docker,   expect: '["docker"]' }
-          - { os: linux, runner: ubuntu-latest, arch: linux-amd64,  ext: "", family: sandbox, harness: bwrap,    runtime: bwrap,    expect: '["bubblewrap","no-new-privs","seccomp-filter","landlock"]' }
-          - { os: linux, runner: ubuntu-latest, arch: linux-amd64,  ext: "", family: sandbox, harness: nspawn,   runtime: nspawn,   expect: '["nspawn"]' }
-          - { os: linux, runner: ubuntu-latest, arch: linux-amd64,  ext: "", family: sandbox, harness: gvisor,   runtime: gvisor,   expect: '["gvisor"]' }
     runs-on: ${{ matrix.runner }}
     env:
       PROBE: ./sandbox-probe${{ matrix.ext }}
@@ -228,47 +234,6 @@ jobs:
           else
             brew install nono
           fi
-      - if: matrix.runtime == 'podman'
-        name: ensure podman
-        shell: bash
-        run: command -v podman >/dev/null || { sudo apt-get update || true; sudo apt-get install -y podman; }
-      - if: matrix.runtime == 'docker'
-        name: ensure docker
-        run: docker info
-      - if: matrix.runtime == 'bwrap'
-        name: install bubblewrap
-        shell: bash
-        run: |
-          sudo apt-get update || true; sudo apt-get install -y bubblewrap
-          # Ubuntu 24.04+ gates unprivileged user namespaces; bwrap --unshare-user needs them.
-          if [ "$(sysctl -n kernel.apparmor_restrict_unprivileged_userns 2>/dev/null || echo 0)" = "1" ]; then
-            sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
-          fi
-      - if: matrix.runtime == 'nspawn' || matrix.runtime == 'gvisor'
-        name: build a container rootfs (ubuntu)
-        shell: bash
-        run: |
-          ROOTFS="$RUNNER_TEMP/rootfs"
-          mkdir -p "$ROOTFS"
-          # Populate from the ubuntu image (faster/more reliable than debootstrap).
-          cid=$(docker create ubuntu:latest)
-          docker export "$cid" | sudo tar -C "$ROOTFS" -xf -
-          docker rm "$cid"
-          # docker export ships /.dockerenv; left in place the probe would misreport "docker".
-          sudo rm -f "$ROOTFS/.dockerenv" "$ROOTFS/run/.containerenv"
-          echo "ROOTFS=$ROOTFS" >> "$GITHUB_ENV"
-      - if: matrix.runtime == 'nspawn'
-        name: install systemd-nspawn
-        shell: bash
-        run: sudo apt-get update || true; sudo apt-get install -y systemd-container
-      - if: matrix.runtime == 'gvisor'
-        name: install gvisor (runsc, systrap platform)
-        shell: bash
-        run: |
-          curl -fsSL https://gvisor.dev/archive.key | sudo gpg --dearmor -o /usr/share/keyrings/gvisor-archive-keyring.gpg
-          echo "deb [arch=$(dpkg --print-architecture) signed-by=/usr/share/keyrings/gvisor-archive-keyring.gpg] https://storage.googleapis.com/gvisor/releases release main" | sudo tee /etc/apt/sources.list.d/gvisor.list >/dev/null
-          sudo apt-get update || true; sudo apt-get install -y runsc
-          runsc --version
 
       # ── run the probe under the harness (model stubbed by the general mock) ────
       - if: matrix.family == 'direct'
@@ -372,8 +337,24 @@ jobs:
         run: ./scripts/run-probe-in-sandbox.sh
 
       # ── assert confinement engaged (any row that declares `expect`) ────────────
-      # Linux can't always fingerprint a bwrap wrapper, so bwrap-based rows accept the kernel
-      # enforcement it adds (no-new-privs / seccomp-filter) — absent from the unconfined baseline.
+      # `expect` is a list of accepted sandbox_detection values; the row passes if the probe emitted
+      # any one of them. Rows also accept mechanism values (no-new-privs / seccomp-filter / landlock)
+      # where the wrapper name could not always be fingerprinted; the two rows spec #6 corrected
+      # (claude-sandbox and srt on Linux) now assert the wrapper name itself.
+      #
+      # FINDING (spec #6 AC: report, do not quietly adjust): nono on Linux is a third harness whose
+      # badge may move. Its setup relaxes kernel.apparmor_restrict_unprivileged_userns, i.e. it runs
+      # in a user namespace, and no nono-specific wrapper detector exists — so the broadened uid_map
+      # rule can now label it `bubblewrap` where it previously read `unknown`. That is the mislabel
+      # the spec accepts, not a miss; this row's mechanism-only `expect` still passes either way, so
+      # it is left as-is pending a scheduled run that shows what nono actually reports.
+      #
+      # FINDING (spec #5.3, #32: record, do not preserve the old assertion): firejail no longer gets
+      # this repo's --seccomp, so the kernel mechanisms reported beside its badge are now whatever
+      # firejail's own default profile installs — `seccomp-filter` is no longer guaranteed to appear,
+      # and if it does, that is firejail's default profile rather than our flag. That is a finding
+      # about the tool. This row's expectation is therefore the vendor default and nothing more: the
+      # `firejail` wrapper name, which is read from process ancestry and unaffected by the filter.
       - if: matrix.expect != ''
         name: assert sandbox engaged
         shell: bash

@@ -112,6 +112,9 @@ ticket 05 onward):
 - ✅ `tests/agent-driven/*.sh` — the baseline/sandbox pair scripts
 - ✅ `reports/*.json`, `trajectories/*.json` — the stored fixtures
 - ✅ `site/` — the client-side reporting page, and the matrix's aggregate/publish job
+- ✅ `docs/mount-cell-moves.md` — the record of which harnesses' Host mounts cell
+  moves under the corrected mount enumerator, and `scripts/mount-cell-moves.mjs`
+  which produces it from two matrix runs
 - ✅ `docs/reporting-site-plan.md`, `docs/adr/0001-*` (the comparison-methodology
   ADR) and [`CONTEXT.md`](CONTEXT.md) — this repository is now the only place
   the comparison-side ubiquitous language is defined. ADR 0002 decides the
@@ -263,6 +266,30 @@ sharing behaviour, the firejail/nono/srt flag audit and the four agent-harness
 verifications, with what was actually tested and on what — is
 [`docs/nesting-evidence.md`](docs/nesting-evidence.md).
 
+**Vendor defaults on the rows that stay.** srt, firejail and nono are
+launched with no restriction this repository invented. firejail gets only
+`--quiet` and applies its own default profile; nono keeps only the
+working-directory and output-directory grants — it denies everything with
+zero flags and will not start without them; srt keeps its deny-by-default
+settings file, widened only for writes to the workspace and temp so the probe
+can emit a report. **None of the three blocks network egress**, because none
+of them does out of the box: those rows now show egress reachable wherever
+the same-OS baseline could reach it, and their exposure rises accordingly.
+That is the vendor's real posture, not a regression. Dropping firejail's
+added syscall filter is also expected to change the kernel mechanisms
+reported beside its `firejail` badge — a finding about firejail's own default
+profile, recorded in `.github/workflows/scan-matrix.yaml`, not an assertion
+to quietly patch.
+
+These three rows stay while a bare container run does not. Each restricts the
+seeded parent's own filesystem by policy instead of swapping in a fresh root,
+so the run really is a child of the seeded host — and the minimum
+hand-authored inline policy needed to start the tool and get a report out is
+itself a real deployment pattern: this is how these tools are driven in
+practice. That is not circular in the way a bare container run is, where
+every route into the sandbox exists only because this repository chose to
+open it.
+
 **Attestation (declared vs actual).** A separate comparison, kept out of the
 0–8 exposure scale: a declared profile's resolved grants diffed against what
 the probe observed under it, every grant landing in one drift class (match,
@@ -276,6 +303,33 @@ extending either side. It is published as its own page (`site/attestation.html`)
 rather than a matrix column, rendering the checked-in `site/attestation.json`
 (`node scripts/build-attestation.mjs` regenerates it), so a verdict can be read
 without nono and without running a scan.
+
+### Adding a sandbox row
+
+Two things a new runtime needs before it can join the matrix.
+
+**Somebody else must have made the configuration decision** — an agent vendor
+shipping its own sandbox, or a declared, versioned policy profile. A raw
+runtime whose every sharing decision comes from `run-probe-in-sandbox.sh` is
+measuring this repository, not the vendor, and no choice of flags fixes that.
+
+**Every flag you pass must carry a declared reason.** Add the runtime and its
+flags to the declaration in
+[`tests/vendor-default-flags.test.mjs`](tests/vendor-default-flags.test.mjs),
+one reason per flag, from exactly three:
+
+| Reason | Means |
+| --- | --- |
+| `vendor-default` | reproduces what the tool does with no flags at all; it is written out only because the invocation shape demands it explicitly |
+| `minimum-to-run` | without it the tool will not start, or the probe cannot run and emit its report — nono's filesystem grants and srt's settings file are this |
+| `output-only` | affects logging or verbosity and never the security boundary — `--quiet`, `--silent` |
+
+Anything needing a fourth reason is a narrowing this project invented, and the
+row would measure our configuration rather than the vendor's posture. The guard
+runs on every push, reads the launcher as its source of truth, and fails naming
+the runtime and the flag — so a flag added, changed or removed there without
+updating the declaration fails too. This exact class of bug was found by hand
+five separate times before the guard existed.
 
 ## What runs the comparison
 
