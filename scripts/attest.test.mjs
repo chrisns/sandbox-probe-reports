@@ -51,7 +51,9 @@ const EXPECTED = {
   "credentials:github": "overclaim",
   // declared, and nothing handed it to the baseline either
   "credentials:anthropic": "unprovable",
-  "process.process_info_mode": "unattested",
+  // process visibility is restricted, and no process is visible under the profile
+  // while the seeded baseline saw one — the profile delivers what it declared
+  "process.process_info_mode": "match",
   "process.signal_mode": "unattested",
   "process.ipc_mode": "unattested",
   "resources.max_processes": "unattested",
@@ -100,9 +102,9 @@ test("mount topology, hostname and user context are excluded, never gaps", () =>
 test("coverage states the attested fraction of the declared surface", () => {
   assert.deepEqual(result.coverage, {
     declared: 19,
-    attested: 13,
-    unattested: 6,
-    attestedFraction: 13 / 19,
+    attested: 14,
+    unattested: 5,
+    attestedFraction: 14 / 19,
   });
 });
 
@@ -130,7 +132,7 @@ test("coverage arithmetic counts network grants, so it moves when they do", () =
   cs.network.allow_domains = cs.network.allow_domains.slice(0, 1);
   cs.network.ports = { localhost: [8080] };
   const fewer = attest({ ...INPUT, capabilitySet: cs }).coverage;
-  assert.deepEqual(fewer, { declared: 16, attested: 10, unattested: 6, attestedFraction: 10 / 16 });
+  assert.deepEqual(fewer, { declared: 16, attested: 11, unattested: 5, attestedFraction: 11 / 16 });
   assert.notEqual(fewer.attestedFraction, result.coverage.attestedFraction);
 });
 
@@ -167,6 +169,53 @@ test("a declared network block is unprovable when the baseline had no egress eit
     baseline: withoutEgress(load("report-baseline")),
   });
   assert.equal(r.verdicts.find((v) => v.id === "network.block").class, "unprovable");
+});
+
+// Process visibility. `isolated` and `allow_same_sandbox` both put the host's own
+// processes out of view, so they are inverted declarations like a network block;
+// only `allow_all` declares processes readable.
+const withProcess = (report, ...findings) => ({ ...report, findings: [...report.findings, ...findings] });
+const PROC = { findingType: "process_detection", task: "baseline_process_task", description: "Visible process", value: { pid: 4211, name: "sandbox-probe-decoy" } };
+const PARENT = { findingType: "parent_process_detection", task: "baseline_process_task", description: "Parent process", value: { pid: 991, name: "bash" } };
+const processVerdict = (over) => attest({ ...INPUT, ...over }).verdicts.find((v) => v.id === "process.process_info_mode");
+
+test("restricted process visibility with a process visible anyway is a gap", () => {
+  assert.equal(processVerdict({ sandbox: withProcess(load("report-under-profile"), PROC) }).class, "gap");
+});
+
+test("the run's own ancestry is not a visible process, so it does not break the match", () => {
+  assert.equal(processVerdict({ sandbox: withProcess(load("report-under-profile"), PARENT) }).class, "match");
+});
+
+test("restricted process visibility is unprovable when the baseline saw no process either", () => {
+  const baseline = { ...load("report-baseline"), findings: load("report-baseline").findings.filter((f) => f.findingType !== "process_detection") };
+  assert.equal(processVerdict({ baseline }).class, "unprovable");
+});
+
+test("allow_all declares processes readable, so absence is an overclaim, not a match", () => {
+  const cs = load("capability-set");
+  cs.process.process_info_mode = "allow_all";
+  assert.equal(processVerdict({ capabilitySet: cs }).class, "overclaim");
+  cs.process.process_info_mode = "allow_same_sandbox";
+  assert.equal(processVerdict({ capabilitySet: cs }).class, "match");
+});
+
+// Runtime capability elevation: a supervisor may grant access mid-run beyond the
+// static declarations, so the scan may under-report reach. A caveat on the whole
+// attestation — it qualifies the reading and changes nothing in it.
+test("a profile enabling runtime capability elevation carries the caveat", () => {
+  assert.deepEqual(result.caveats.map((c) => c.id), ["runtime-capability-elevation"]);
+  assert.match(result.caveats[0].reason, /may under-report/);
+});
+
+test("the caveat changes no verdict, no gap and no coverage", () => {
+  const cs = load("capability-set");
+  cs.process.exec_strategy = "monitor";
+  const without = attest({ ...INPUT, capabilitySet: cs });
+  assert.deepEqual(without.caveats, []);
+  assert.deepEqual(without.verdicts, result.verdicts);
+  assert.deepEqual(without.gaps, result.gaps);
+  assert.deepEqual(without.coverage, result.coverage);
 });
 
 test("the attestation names the profile and the manifest it checked", () => {

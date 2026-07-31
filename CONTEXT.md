@@ -220,6 +220,14 @@ the pathname AF_UNIX grants are not enforced at all. Every socket-derived result
 then carries the modifier and is **unattested** — never a gap and never an
 overclaim, because an unmediated socket surface is not a policy failure.
 
+### Caveat (attestation)
+A statement of what the attestation cannot see, carried on the attestation as a
+whole. Unlike a **modifier**, it does not change how any result is read — it says
+the results may be incomplete. The first is **runtime capability elevation**
+(`process.exec_strategy: "supervised"`): a supervisor may grant access mid-run
+beyond the static declarations, so a point-in-time scan may under-report reach.
+A caveat is never a drift class, changes no verdict and moves no coverage.
+
 ### Undeclarable finding
 A finding nono has nothing to declare for by design — mount topology, hostname
 and UID/GID context, because it mediates by policy and never swaps a namespace or

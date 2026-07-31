@@ -80,6 +80,18 @@
       "value": { "env_key": "NPM_TOKEN", "description": "npm access token" }
     },
     {
+      "findingType": "process_detection",
+      "task": "baseline_process_task",
+      "description": "Visible process",
+      "value": { "pid": 4211, "name": "sandbox-probe-decoy" }
+    },
+    {
+      "findingType": "parent_process_detection",
+      "task": "baseline_process_task",
+      "description": "Parent process",
+      "value": { "pid": 991, "name": "bash" }
+    },
+    {
       "findingType": "mounted_volumes_detections",
       "task": "baseline_mount_task",
       "description": "Mounted volumes",

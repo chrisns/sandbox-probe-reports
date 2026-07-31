@@ -46,6 +46,19 @@ const SOCKET_GRANTS = {
 // (the variable name and why it matched, never the value), so this axis arrives as
 // several object-valued findings rather than one list-valued one.
 const CRED_FINDING = "env_secret_detection";
+
+// Process visibility: `process_detection` only. `parent_process_detection` is the
+// run's own ancestry, which a process-info mode never claims to hide, so folding it
+// in the way the exposure matrix does would poison the verdict.
+const PROCESS_FINDING = "process_detection";
+
+// `process.exec_strategy: "supervised"` is the one strategy that supports capability
+// elevation: a supervisor may grant access mid-run beyond the static declarations, so
+// a point-in-time scan may under-report reach. A caveat on the attestation, never a
+// drift class and never a per-unit verdict — nothing observed is any less true.
+const ELEVATION = "runtime-capability-elevation";
+const ELEVATION_REASON =
+  "process.exec_strategy is 'supervised' — a supervisor may elevate capabilities mid-run, so a point-in-time scan may under-report what was reachable";
 const ENV_SOURCE = /^env:\/\/(.+)$/;
 const NOT_FROM_ENV =
   "credential is not sourced from the environment — nothing here observes where it comes from";
@@ -224,7 +237,22 @@ function declaredUnits(cs, home) {
   }
 
   const p = cs.process ?? {};
-  if (p.process_info_mode) push("process.process_info_mode", { category: "process", reason: NOT_MAPPED });
+  // Only `allow_all` declares other processes readable; `isolated` and
+  // `allow_same_sandbox` both put the host's processes out of view, so they are
+  // inverted declarations — attested by processes being *absent* under the profile
+  // while the seeded baseline saw them, and a gap when they show up anyway.
+  // ponytail: no per-process gap pass. The declaration is one mode over the whole
+  // category, so every visible process would repeat the same verdict.
+  if (p.process_info_mode) {
+    push("process.process_info_mode", {
+      category: "process",
+      kind: "any",
+      mode: p.process_info_mode,
+      ...(p.process_info_mode === "allow_all" ? {} : { polarity: "absent" }),
+      declares: PROCESS_FINDING,
+      findingType: PROCESS_FINDING,
+    });
+  }
   if (p.signal_mode) push("process.signal_mode", { category: "process", reason: NO_FINDING });
   if (p.ipc_mode) push("process.ipc_mode", { category: "process", reason: NO_FINDING });
   if (p.allowed_commands?.length || p.blocked_commands?.length) {
@@ -301,6 +329,13 @@ export function attest({ profile, capabilitySet, sandbox, baseline, home }) {
     // The reading modifiers, on the attestation itself so an unmediated socket surface
     // is visible without opening the profile.
     modifiers: { socketMediation: mediation },
+    // What the attestation cannot see, stated on the attestation itself. Computed
+    // after the verdicts and folded into nothing: a caveat qualifies the whole
+    // reading, it does not change any single verdict or the coverage arithmetic.
+    caveats:
+      capabilitySet.process?.exec_strategy === "supervised"
+        ? [{ id: ELEVATION, reason: ELEVATION_REASON }]
+        : [],
     // Sockets observed while unmediated: reported, never as gaps.
     unmediated:
       mediation === "pathname"
