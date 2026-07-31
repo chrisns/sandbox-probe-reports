@@ -122,9 +122,19 @@ function build(rows) {
     (byIdentity[id] ||= []).push(r);
   }
 
+  // Retirement (spec #5 / #30): an identity whose most recent run predates its
+  // OS's latest scan no longer receives runs, so it leaves the matrix and the
+  // charts rather than showing a stale row or a line that stops mid-axis. Read-
+  // time filter only — every historical report stays on the data branch. It is
+  // arrival's inverse: a first-time identity is in the latest scan, so it joins
+  // with no code change, and a departed one leaves the same way.
+  const latestScan = {};
+  for (const r of rows) if (r.runTimestamp > (latestScan[r.os] || "")) latestScan[r.os] = r.runTimestamp;
+
   const identities = {};
   for (const [id, list] of Object.entries(byIdentity)) {
     list.sort((a, b) => a.runTimestamp.localeCompare(b.runTimestamp));
+    if (list.at(-1).runTimestamp < latestScan[list[0].os]) continue;
     // collapse by fingerprint: one point per distinct fingerprint, latest run wins, first-seen ts.
     const points = new Map(); // fp -> point
     for (const r of list) {
