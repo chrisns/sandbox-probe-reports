@@ -121,7 +121,10 @@ record left by a crashed run: an artifact already gone, or one that is no longer
 the artifact that was planted, is left alone. For a live artifact the record
 carries an identity as well as a location — the process id and the command name
 it was seeded under — and no signal is sent unless the pid still holds that
-name, so a reused pid can never cost an unrelated process.
+name, so a reused pid can never cost an unrelated process. A `file` decoy needs
+no record: it carries its identity in its own content, so cleanup removes a
+registry path only while it still holds exactly the decoy line — a real secret
+that has since appeared there, or a decoy someone edited, is left alone.
 
 ### Sibling session
 An unrelated, concurrent agent session on the same host. The agent-ipc decoy is

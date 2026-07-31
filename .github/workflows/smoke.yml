@@ -73,3 +73,10 @@ jobs:
         run: |
           jq -e . report.json > /dev/null
           jq -e 'any(.findings[]; .findingType == "sensitive_readable_paths")' report.json
+
+      # The other half of the same contract: seeding plants live artifacts (a
+      # process, and a pipe server on Windows), so the cleanup path is exercised
+      # here on every push rather than only in the weekly matrix.
+      - name: cleanup removes what seeding planted
+        if: always()
+        run: scripts/seed-decoys.sh --cleanup bin/sandbox-probe

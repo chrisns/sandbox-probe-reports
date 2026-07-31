@@ -62,9 +62,11 @@ It points at **`v1.1.0`**, which is not the version anyone wants:
   module path is `github.com/controlplaneio/sandbox-probe` with no `/v4`
   suffix, so the proxy rejects them (*"module path must match major
   version"*). `v1.1.0` is the newest tag that resolves at all.
-- `v1.1.0` predates `list-targets`, so **the smoke job's seed step fails**
-  against it. That is honest signal, not a bug in the job: the registry
-  contract genuinely is not there yet.
+- `v1.1.0` predates `list-targets` — and now `seed`/`cleanup` too — so **the
+  smoke job's seed step fails** against it. That is honest signal, not a bug in
+  the job: the registry contract genuinely is not there yet. It is also why the
+  IPC half of seeding is unexercised end to end: `scripts/seed-decoys.sh`
+  dispatches to the probe's `seed`, which the pinned version does not have.
 
 Both clear when the probe's release pipeline is fixed
 ([controlplaneio/sandbox-probe#14](https://github.com/controlplaneio/sandbox-probe/issues/14))
@@ -258,9 +260,16 @@ over time means a widening sandbox; falling means a tightening one.
 sockets, and processes simply don't exist yet. The probe exports its own
 target registry (`list-targets`); a seeder soft-plants a decoy at each target
 (write only where nothing real already exists) **identically before the
-baseline run and every sandbox run**. Parity is load-bearing: seed one side
-and not the other and a real block becomes indistinguishable from "the decoy
-was never there" — a false 🟩.
+baseline run and every sandbox run, on every runner OS**. Parity is
+load-bearing: seed one side and not the other and a real block becomes
+indistinguishable from "the decoy was never there" — a false 🟩.
+`scripts/seed-decoys.sh` is that one invocation point, in both directions:
+no flag plants, `--cleanup` removes. It plants the `file` kind itself and
+delegates socket, process and Windows named-pipe decoys to the probe's own
+`seed`/`cleanup` (bash cannot `bind()` a socket or serve a pipe), so a new
+kind in the registry needs no change on this side. Cleanup runs after every
+scan **even when the scan failed**, because a process decoy and a pipe server
+are live artifacts a reused runner would otherwise accumulate.
 
 **Time-series identity.** Runs group into one trend line by the tuple
 `(os, harness)` (e.g. `macos-claude-sandbox`) — read from tags so a new
