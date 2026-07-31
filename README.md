@@ -264,7 +264,10 @@ observed by which finding, which categories nothing observes and are named
 unattested, which are excluded by design, and where nono's own published schema
 is stale, are in
 [`docs/attestation-mapping.md`](docs/attestation-mapping.md) — read it before
-extending either side.
+extending either side. It is published as its own page (`site/attestation.html`)
+rather than a matrix column, rendering the checked-in `site/attestation.json`
+(`node scripts/build-attestation.mjs` regenerates it), so a verdict can be read
+without nono and without running a scan.
 
 ## What runs the comparison
 
