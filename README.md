@@ -255,6 +255,17 @@ own sandbox, or a declared, versioned policy profile — see the
 [`profile-attestation`](.scratch/profile-attestation/map.md) wayfinder map
 for the emerging declared-vs-actual variant of this idea.
 
+**Attestation (declared vs actual).** A separate comparison, kept out of the
+0–8 exposure scale: a declared profile's resolved grants diffed against what
+the probe observed under it, every grant landing in one drift class (match,
+overclaim, gap, unprovable, unattested) alongside the **coverage** that says how
+much of the declared surface was attestable at all. Which declared grant is
+observed by which finding, which categories nothing observes and are named
+unattested, which are excluded by design, and where nono's own published schema
+is stale, are in
+[`docs/attestation-mapping.md`](docs/attestation-mapping.md) — read it before
+extending either side.
+
 ## What runs the comparison
 
 Everything here compares reports produced by

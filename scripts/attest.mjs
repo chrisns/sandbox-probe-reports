@@ -1,7 +1,9 @@
 // Profile attestation: diff a *declared* nono capability set against what the
 // probe *observed*, and say how much of the declared surface was attestable at
 // all. See CONTEXT.md ("Attestation" and the drift classes) and spec
-// controlplaneio/sandbox-probe#4.
+// controlplaneio/sandbox-probe#4. The declared-grant-to-finding mapping — every
+// row below, what is unattested and why, what is excluded by design, and nono's
+// own stale published schema — is docs/attestation-mapping.md.
 //
 // Pure function over three documents — a resolved capability set, the report
 // from a scan under that profile, and the same-host seeded unconfined baseline.
@@ -71,6 +73,18 @@ const MEDIATION_OFF = "socket-mediation-disabled";
 const UNMEDIATED_REASON =
   "linux.af_unix_mediation is off — socket grants are not enforced, so nothing observed here reads as policy";
 const socketMediation = (cs) => cs.linux?.af_unix_mediation ?? "off";
+
+// Declared by nono and deliberately *not* named as unattested: both run outside
+// the sandbox boundary a scan measures — a hook is a host-side script with host
+// privileges, and URL opening is the supervisor's own action, not the child's. No
+// finding inside a sandbox could ever observe either, so calling them unattested
+// would advertise a probe gap that cannot be closed. See
+// docs/attestation-mapping.md.
+export const EXCLUDED_DECLARATIONS = {
+  hooks: "host-side hook scripts run outside the sandbox boundary — nothing inside a scan can observe them",
+  session_hooks: "session lifecycle scripts, host-side and outside the boundary, same as hooks",
+  open_urls: "supervisor-mediated URL opening — the supervisor acts, not the sandboxed child",
+};
 
 // Findings nono has nothing to declare for by design — it mediates by policy and
 // never swaps a namespace or a rootfs. Excluded from the diff entirely: these can
@@ -261,6 +275,19 @@ function declaredUnits(cs, home) {
 
   for (const k of ["memory_bytes", "max_processes"]) {
     if (cs.resources?.[k] != null) push(`resources.${k}`, { category: "resources", reason: NO_FINDING });
+  }
+
+  // Environment filtering is the *whole* environment: `env_secret_detection` only
+  // reports the secret-shaped subset, so it cannot say whether an allow/deny list
+  // was applied. One unit for the policy, like command gating above.
+  if (["allow_vars", "deny_vars", "set_vars"].some((k) => cs.environment?.[k])) {
+    push("environment.filtering", { category: "environment", reason: NO_FINDING });
+  }
+
+  // Opt-in device/service gates. Nothing here opens a GPU device or asks
+  // LaunchServices to open anything, so they are named rather than dropped.
+  for (const k of ["allow_gpu", "allow_launch_services"]) {
+    if (cs[k]) push(k, { category: "platform", reason: NO_FINDING });
   }
 
   return units;

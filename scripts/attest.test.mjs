@@ -4,7 +4,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
-import { attest, UNDECLARABLE } from "./attest.mjs";
+import { attest, UNDECLARABLE, EXCLUDED_DECLARATIONS } from "./attest.mjs";
 
 const load = (name) =>
   JSON.parse(readFileSync(new URL(`../tests/fixtures/attestation/${name}.json`, import.meta.url), "utf8"));
@@ -227,6 +227,51 @@ test("a verdict that cannot name its claim is refused", () => {
     () => attest({ profile: { id: "nolabs-ai/codex" }, capabilitySet: load("capability-set"), sandbox: {}, baseline: {} }),
     /profile\.id and profile\.version are required/,
   );
+});
+
+// Every category nono declares that nothing here observes: named as unattested,
+// never silently absent, and never counted as attested surface. The mapping and
+// the reasons are in docs/attestation-mapping.md.
+const unattestable = attest({ ...INPUT, capabilitySet: load("capability-set-unattestable") });
+const UNATTESTABLE = [
+  "process.signal_mode", // signal permission
+  "process.ipc_mode", // IPC and semaphore mode
+  "allow_gpu",
+  "allow_launch_services",
+  "resources.memory_bytes", // resource ceilings
+  "resources.max_processes",
+  "network.endpoints:api.github.com:443", // L7 method-and-path filtering
+  "process.commands", // command execution gating
+  "environment.filtering", // environment variable allow/deny filtering
+  "network.mode", // how egress is mediated, not whether anything is reachable
+];
+
+for (const id of UNATTESTABLE) {
+  test(`${id} is named unattested, with a reason`, () => {
+    const v = unattestable.verdicts.find((x) => x.id === id);
+    assert.equal(v?.class, "unattested", `${id} must be named, not silently absent`);
+    assert.ok(v.reason, `${id} must say why nothing observes it`);
+    assert.ok(!v.findingType, `${id} must not count as attested surface`);
+  });
+}
+
+test("nothing in an unattestable profile passes as attested", () => {
+  assert.deepEqual(unattestable.verdicts.map((v) => v.id).sort(), [...UNATTESTABLE].sort());
+  assert.deepEqual(unattestable.coverage, {
+    declared: UNATTESTABLE.length,
+    attested: 0,
+    unattested: UNATTESTABLE.length,
+    attestedFraction: 0,
+  });
+});
+
+test("hooks and supervisor-mediated URL opening are excluded by design, not unattested", () => {
+  // They run outside the sandbox boundary, so naming them would advertise a probe
+  // gap that cannot be closed. Declared in the fixture, absent from the verdicts.
+  for (const id of Object.keys(EXCLUDED_DECLARATIONS)) {
+    assert.ok(EXCLUDED_DECLARATIONS[id], `${id} must record why it is excluded`);
+    assert.ok(!unattestable.verdicts.some((v) => v.id.startsWith(id)));
+  }
 });
 
 // Socket grants, read against `linux.af_unix_mediation`. Mediation on: ordinary
