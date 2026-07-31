@@ -104,18 +104,17 @@ jobs:
           # trae-docker — trae's own Docker execution mode (agent-driven container). Heavy (source clone +
           # pyinstaller tool-bundling per run) and only re-detects docker, so best-effort.
           - { os: linux, runner: ubuntu-latest, arch: linux-amd64,  ext: "", family: trae,     harness: trae-docker, sandbox: "docker", expect: '["docker"]', optional: true }
-          # sandbox runtimes — no agent, no model; each a distinct keyless OS sandbox the probe fingerprints.
+          # sandbox runtimes — no agent, no model; each restricts the seeded parent's own filesystem
+          # by policy, so the run is a genuine child of it. The rootfs-swapping runtimes (docker,
+          # podman, bwrap, nspawn, gvisor) are retired: they were never nested in the seeded parent,
+          # and any sharing flags this repo adds to nest them would be its own configuration choice
+          # rather than a vendor's. See the retirement note in README.md.
           # spec #6: as for claude-sandbox — same bwrap engine, wrapper name now resolves.
           - { os: linux, runner: ubuntu-latest, arch: linux-amd64,  ext: "", family: sandbox, harness: srt,      runtime: srt,      expect: '["bubblewrap"]' }
           - { os: macos, runner: macos-latest,  arch: darwin-arm64, ext: "", family: sandbox, harness: srt,      runtime: srt,      expect: '["seatbelt"]' }
           - { os: linux, runner: ubuntu-latest, arch: linux-amd64,  ext: "", family: sandbox, harness: firejail, runtime: firejail, expect: '["firejail"]' }
           - { os: linux, runner: ubuntu-latest, arch: linux-amd64,  ext: "", family: sandbox, harness: nono,     runtime: nono,     expect: '["landlock","seccomp-notify","seccomp-filter","no-new-privs"]' }
           - { os: macos, runner: macos-latest,  arch: darwin-arm64, ext: "", family: sandbox, harness: nono,     runtime: nono,     expect: '["seatbelt"]' }
-          - { os: linux, runner: ubuntu-latest, arch: linux-amd64,  ext: "", family: sandbox, harness: podman,   runtime: podman,   expect: '["podman"]' }
-          - { os: linux, runner: ubuntu-latest, arch: linux-amd64,  ext: "", family: sandbox, harness: docker,   runtime: docker,   expect: '["docker"]' }
-          - { os: linux, runner: ubuntu-latest, arch: linux-amd64,  ext: "", family: sandbox, harness: bwrap,    runtime: bwrap,    expect: '["bubblewrap","no-new-privs","seccomp-filter","landlock"]' }
-          - { os: linux, runner: ubuntu-latest, arch: linux-amd64,  ext: "", family: sandbox, harness: nspawn,   runtime: nspawn,   expect: '["nspawn"]' }
-          - { os: linux, runner: ubuntu-latest, arch: linux-amd64,  ext: "", family: sandbox, harness: gvisor,   runtime: gvisor,   expect: '["gvisor"]' }
     runs-on: ${{ matrix.runner }}
     env:
       PROBE: ./sandbox-probe${{ matrix.ext }}
@@ -231,47 +230,6 @@ jobs:
           else
             brew install nono
           fi
-      - if: matrix.runtime == 'podman'
-        name: ensure podman
-        shell: bash
-        run: command -v podman >/dev/null || { sudo apt-get update || true; sudo apt-get install -y podman; }
-      - if: matrix.runtime == 'docker'
-        name: ensure docker
-        run: docker info
-      - if: matrix.runtime == 'bwrap'
-        name: install bubblewrap
-        shell: bash
-        run: |
-          sudo apt-get update || true; sudo apt-get install -y bubblewrap
-          # Ubuntu 24.04+ gates unprivileged user namespaces; bwrap --unshare-user needs them.
-          if [ "$(sysctl -n kernel.apparmor_restrict_unprivileged_userns 2>/dev/null || echo 0)" = "1" ]; then
-            sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
-          fi
-      - if: matrix.runtime == 'nspawn' || matrix.runtime == 'gvisor'
-        name: build a container rootfs (ubuntu)
-        shell: bash
-        run: |
-          ROOTFS="$RUNNER_TEMP/rootfs"
-          mkdir -p "$ROOTFS"
-          # Populate from the ubuntu image (faster/more reliable than debootstrap).
-          cid=$(docker create ubuntu:latest)
-          docker export "$cid" | sudo tar -C "$ROOTFS" -xf -
-          docker rm "$cid"
-          # docker export ships /.dockerenv; left in place the probe would misreport "docker".
-          sudo rm -f "$ROOTFS/.dockerenv" "$ROOTFS/run/.containerenv"
-          echo "ROOTFS=$ROOTFS" >> "$GITHUB_ENV"
-      - if: matrix.runtime == 'nspawn'
-        name: install systemd-nspawn
-        shell: bash
-        run: sudo apt-get update || true; sudo apt-get install -y systemd-container
-      - if: matrix.runtime == 'gvisor'
-        name: install gvisor (runsc, systrap platform)
-        shell: bash
-        run: |
-          curl -fsSL https://gvisor.dev/archive.key | sudo gpg --dearmor -o /usr/share/keyrings/gvisor-archive-keyring.gpg
-          echo "deb [arch=$(dpkg --print-architecture) signed-by=/usr/share/keyrings/gvisor-archive-keyring.gpg] https://storage.googleapis.com/gvisor/releases release main" | sudo tee /etc/apt/sources.list.d/gvisor.list >/dev/null
-          sudo apt-get update || true; sudo apt-get install -y runsc
-          runsc --version
 
       # ── run the probe under the harness (model stubbed by the general mock) ────
       - if: matrix.family == 'direct'
