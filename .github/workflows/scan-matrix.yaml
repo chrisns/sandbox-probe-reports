@@ -36,7 +36,7 @@ jobs:
       # reuse it instead of recompiling every run. The pin is go.mod's `tool` directive,
       # so go.mod/go.sum are the only inputs that can change the binary.
       - id: cache
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         with:
           path: sandbox-probe${{ matrix.ext }}
           key: probe-${{ matrix.goos }}-${{ matrix.goarch }}-${{ hashFiles('go.mod', 'go.sum') }}
